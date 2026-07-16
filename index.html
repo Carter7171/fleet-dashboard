@@ -1004,15 +1004,21 @@ function openVehicle(vehicleNo){
     '<div class="form-row"><div class="field"><label>Current Mileage</label><input id="v-cur" type="number" value="'+esc(v.currentMileage)+'"></div>'+
     '<div class="field"><label>Last Oil Change Mileage</label><input id="v-lastoil" type="number" value="'+esc(v.lastOilChangeMileage)+'"></div></div>'+
     '<div class="form-row"><div class="field"><label>Oil Change Interval</label><input id="v-interval" type="number" value="'+esc(v.oilChangeInterval||5000)+'"></div>'+
-    '<div class="field"><label>Due Soon Threshold (mi)</label><input id="v-soon" type="number" value="'+esc(v.oilDueSoonMiles||500)+'"></div></div>';
+    '<div class="field"><label>Due Soon Threshold (mi)</label><input id="v-soon" type="number" value="'+esc(v.oilDueSoonMiles||500)+'"></div></div>'+
+    '<div class="field"><label>Next Oil Change Due At (optional) <span style="text-transform:none;color:var(--muted)">— what the driver reported; fills in Last Oil Change for you</span></label><input id="v-nextoil" type="number" placeholder="e.g. 55000"></div>';
   document.getElementById('modal-foot').innerHTML=(vehicleNo?'<button class="btn danger" onclick="deleteVehicle(\''+vehicleNo+'\')">Delete</button>':'')+'<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveVehicle(\''+(vehicleNo||'')+'\')">Save</button>';
   openModal();
 }
 async function saveVehicle(orig){
   const vehicleNo=(orig||val('v-no')).trim();
   if(!vehicleNo){ toast('Vehicle No required.','err'); return; }
+  const interval=num(val('v-interval'))||5000;
+  const nextoil=num(val('v-nextoil'));
+  // "Next Oil Change Due At" is a convenience — back-compute Last Oil Change from it.
+  const lastoil = nextoil>0 ? nextoil-interval : num(val('v-lastoil'));
   const data={vehicleNo,description:val('v-desc'),year:val('v-year'),make:val('v-make'),model:val('v-model'),vin:val('v-vin'),assignedDriverEmail:val('v-driver')||null,currentMileage:num(val('v-cur')),
-    lastOilChangeMileage:num(val('v-lastoil')),oilChangeInterval:num(val('v-interval'))||5000,oilDueSoonMiles:num(val('v-soon'))||500,active:true,updatedAt:nowTs()};
+    lastOilChangeMileage:lastoil,oilChangeInterval:interval,oilDueSoonMiles:num(val('v-soon'))||500,active:true,updatedAt:nowTs()};
+  if(nextoil>0) data.lastOilChangeDate=nowTs();
   if(!orig){ data.createdAt=nowTs(); data.currentMileageAt=nowTs(); }
   try{ await dbSet('vehicles',vehicleNo,data); closeModal(); toast('Vehicle saved ✓','ok'); }catch(e){ toast('Save failed: '+e.message,'err'); }
 }
