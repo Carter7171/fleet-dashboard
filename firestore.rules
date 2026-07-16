@@ -5,12 +5,12 @@ service cloud.firestore {
     // ---- helpers ----
     function signedIn() { return request.auth != null; }
     function email()    { return request.auth.token.email.lower(); }
-    function me()       { return get(/databases/$(database)/documents/fleet_employees/$(email())); }
-    function myRole()   { return me().data.role; }
-    function myEmpId()  { return me().data.empId; }
-    function isAdmin()  { return signedIn() && exists(/databases/$(database)/documents/fleet_employees/$(email())) && myRole() == 'admin'; }
-    function isManager(){ return signedIn() && exists(/databases/$(database)/documents/fleet_employees/$(email())) && (myRole() == 'manager' || myRole() == 'admin'); }
     function provisioned(){ return signedIn() && exists(/databases/$(database)/documents/fleet_employees/$(email())); }
+    function me()       { return get(/databases/$(database)/documents/fleet_employees/$(email())); }
+    function myRole()   { return me().data.get('role', 'driver').lower(); }  // case/whitespace-tolerant
+    function myEmpId()  { return me().data.get('empId', ''); }
+    function isAdmin()  { return provisioned() && myRole() == 'admin'; }
+    function isManager(){ return provisioned() && (myRole() == 'manager' || myRole() == 'admin'); }
 
     // employee doc of a given email
     function empData(e) { return get(/databases/$(database)/documents/fleet_employees/$(e)).data; }

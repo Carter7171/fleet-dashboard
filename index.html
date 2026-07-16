@@ -419,6 +419,7 @@ function driverOfVehicle(v){ return S.employees.find(e=>e.email===v.assignedDriv
 function empByEmail(email){ return S.employees.find(e=>e.email===email); }
 function vehicleOfDriver(email){ return S.vehicles.find(v=>v.assignedDriverEmail===email); }
 function vehMakeModel(v){ const s=[v.year,v.make,v.model].filter(Boolean).join(' '); return s|| (v.description||'—'); }
+function normRole(r){ r=String(r||'driver').trim().toLowerCase(); return (r==='admin'||r==='manager'||r==='driver')?r:'driver'; }
 
 /* ============================================================
    ROLE GATING
@@ -566,7 +567,7 @@ function bootDev(){
   if(role==='admin') u=S.employees.find(e=>e.role==='admin');
   else if(role==='manager') u=S.employees.find(e=>e.role==='manager');
   else u=S.employees.find(e=>e.role==='driver');
-  S.user={email:u.email,role:u.role,empId:u.empId,managerId:u.managerId,name:u.name};
+  S.user={email:u.email,role:normRole(u.role),empId:u.empId,managerId:u.managerId,name:u.name};
   startApp();
 }
 function bootLive(){
@@ -576,7 +577,7 @@ function bootLive(){
     if(!user){ document.getElementById('login').style.display='flex'; document.getElementById('app').style.display='none'; return; }
     const emp=await resolveEmployee(user.email.toLowerCase());
     if(!emp){ showAccessDenied(user.email); return; }
-    S.user={email:emp.email,role:emp.role||'driver',empId:emp.empId,managerId:emp.managerId,name:emp.name};
+    S.user={email:emp.email,role:normRole(emp.role),empId:emp.empId,managerId:emp.managerId,name:emp.name};
     attachListeners();
     startApp();
   });
@@ -721,7 +722,13 @@ function renderMyReport(){
   let vehs=visibleVehicles();
   if(S.user.role!=='driver'){ vehs=S.vehicles; }
   const myVeh=vehicleOfDriver(S.user.email);
-  if(!vehs.length){ wrap.innerHTML='<div class="empty" style="text-align:left;line-height:1.7">No vehicle is assigned to <b style="color:var(--text)">'+S.user.email+'</b> yet.<br>An administrator can fix this under <b>Admin → Vehicles</b>: edit the vehicle and set its <b>Assigned Driver</b> to this exact email (the driver\'s login email and the vehicle\'s assigned email must match).</div>'; }
+  if(!vehs.length){
+    if(S.user.role==='driver'){
+      wrap.innerHTML='<div class="empty" style="text-align:left;line-height:1.7">No vehicle is assigned to <b style="color:var(--text)">'+S.user.email+'</b> yet.<br>An administrator can fix this under <b>Admin → Vehicles</b>: edit the vehicle and set its <b>Assigned Driver</b> to this exact email (the driver\'s login email and the vehicle\'s assigned email must match).</div>';
+    } else {
+      wrap.innerHTML='<div class="empty" style="text-align:left;line-height:1.7">No vehicles are loading for your account. This usually means the <b>Firestore security rules</b> haven\'t been published yet (managers/admins read fleet-wide). Publish the latest <b>firestore.rules</b> in the Firebase console, then refresh.</div>';
+    }
+  }
   else {
     wrap.innerHTML=
       '<div class="field"><label>Vehicle</label><select id="mr-vehicle">'+
