@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers ----
+    function signedIn() { return request.auth != null; }
+    function email()    { return request.auth.token.email.lower(); }
+    function me()       { return get(/databases/$(database)/documents/fleet_employees/$(email())); }
+    function myRole()   { return me().data.role; }
+    function myEmpId()  { return me().data.empId; }
+    function isAdmin()  { return signedIn() && exists(/databases/$(database)/documents/fleet_employees/$(email())) && myRole() == 'admin'; }
+    function isManager(){ return signedIn() && exists(/databases/$(database)/documents/fleet_employees/$(email())) && (myRole() == 'manager' || myRole() == 'admin'); }
+    function provisioned(){ return signedIn() && exists(/databases/$(database)/documents/fleet_employees/$(email())); }
+
+    // employee doc of a given email
+    function empData(e) { return get(/databases/$(database)/documents/fleet_employees/$(e)).data; }
+    // is the given driver-email on my team (I'm their manager) or myself
+    function onMyTeam(driverEmail) {
+      return driverEmail == email() ||
+        (exists(/databases/$(database)/documents/fleet_employees/$(driverEmail)) && empData(driverEmail).managerId == myEmpId());
+    }
+
+    // ---- fleet_employees ----
+    // Anyone signed in can read their own doc (needed to resolve role at login).
+    // Managers read their team; admins read/write all. A user may create ONLY their own
+    // doc as a default 'driver' (self-provision); role elevation is admin-only.
+    match /fleet_employees/{docEmail} {
+      allow read: if isAdmin()
+                  || (signedIn() && docEmail == email())
+                  || (isManager() && resource.data.managerId == myEmpId());
+      allow write: if isAdmin();
+    }
+
+    // ---- fleet_vehicles ----
+    match /fleet_vehicles/{vehicleNo} {
+      allow read: if isAdmin()
+                  || (provisioned() && resource.data.assignedDriverEmail == email())
+                  || (isManager() && resource.data.assignedDriverEmail != null && onMyTeam(resource.data.assignedDriverEmail));
+      // config edits are admin-only; the mileage-submit path updates only currentMileage*
+      allow update: if isAdmin()
+                  || (provisioned()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentMileage','currentMileageAt','lastOilChangeMileage','lastOilChangeDate'])
+                      && (resource.data.assignedDriverEmail == email()
+                          || (isManager() && resource.data.assignedDriverEmail != null && onMyTeam(resource.data.assignedDriverEmail))));
+      allow create, delete: if isAdmin();
+    }
+
+    // ---- fleet_mileage_submissions (immutable history) ----
+    match /fleet_mileage_submissions/{id} {
+      allow read: if isAdmin()
+                  || (provisioned() && resource.data.driverEmail == email())
+                  || (isManager() && onMyTeam(resource.data.driverEmail));
+      allow create: if provisioned()
+                  && request.resource.data.driverEmail == email()  // drivers create their own
+                  || isManager() && onMyTeam(request.resource.data.driverEmail); // mgr/admin on behalf
+      allow update, delete: if false; // never mutate history
+    }
+
+    // ---- fleet_inspections ----
+    match /fleet_inspections/{id} {
+      allow read: if isAdmin()
+                  || (provisioned() && resource.data.driverEmail == email())
+                  || (isManager() && onMyTeam(resource.data.driverEmail));
+      allow create, update: if isManager()
+                  && (request.resource.data.driverEmail == null || onMyTeam(request.resource.data.driverEmail));
+      allow delete: if isAdmin();
+    }
+
+    // ---- fleet_week_status : written only by Cloud Functions (admin SDK) + the owning driver's submit ----
+    match /fleet_week_status/{id} {
+      allow read: if isAdmin()
+                  || (provisioned() && resource.data.driverEmail == email())
+                  || (isManager() && onMyTeam(resource.data.driverEmail));
+      // client may only flip a week to submitted=true (own week, or a manager/admin on behalf of team);
+      // all escalation fields (reminderSentAt, escalationCount, adminNotifiedAt) are function-only.
+      allow write: if request.resource.data.submitted == true
+                  && (isAdmin()
+                      || (provisioned() && request.resource.data.driverEmail == email())
+                      || (isManager() && onMyTeam(request.resource.data.driverEmail)));
+    }
+
+    // ---- fleet_notifications : function-written audit log, read per role ----
+    match /fleet_notifications/{id} {
+      allow read: if isAdmin() || (provisioned() && resource.data.toEmail == email());
+      allow write: if false; // Cloud Functions (admin SDK) bypass rules
+    }
+
+    // ---- fleet_config ----
+    match /fleet_config/{id} {
+      allow read: if provisioned();
+      allow write: if isAdmin();
+    }
+  }
+}

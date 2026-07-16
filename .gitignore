@@ -1,0 +1,16 @@
+# Driver PII / real fleet data — NEVER publish. Lives in Firestore, not the repo.
+louisville_roster.csv
+louisville_roster.xlsx
+*roster*.csv
+*roster*.xlsx
+KY.xlsx
+
+# Node
+functions/node_modules/
+node_modules/
+package-lock.json
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db

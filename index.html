@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AFS Fleet — Vehicle Tracking &amp; Maintenance</title>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;
+  --text:#e6edf3;--muted:#8b949e;--primary:#58a6ff;
+  --success:#3fb950;--warning:#d29922;--danger:#f85149;--purple:#bc8cff;--orange:#f0883e;
+  --sb-w:220px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:14px}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font-family:inherit}
+input,select,textarea{font-family:inherit}
+
+/* ---- Buttons ---- */
+.btn{font-size:13px;padding:7px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);cursor:pointer;white-space:nowrap;transition:all .12s}
+.btn:hover{border-color:var(--primary)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.sm{padding:4px 9px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* ---- Layout ---- */
+#app{display:none}
+.sidebar{position:fixed;top:0;left:0;bottom:0;width:var(--sb-w);background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform .2s}
+.sb-brand{padding:16px 18px;border-bottom:1px solid var(--border)}
+.sb-brand .t{font-size:15px;font-weight:800}
+.sb-brand .s{font-size:11px;color:var(--muted);margin-top:2px}
+.sb-nav{flex:1;overflow-y:auto;padding:8px 0}
+.sb-link{display:flex;align-items:center;gap:10px;padding:9px 18px;font-size:13px;color:var(--muted);cursor:pointer;border-left:3px solid transparent}
+.sb-link:hover{background:var(--surface2);color:var(--text)}
+.sb-link.active{color:var(--text);border-left-color:var(--primary);background:var(--surface2)}
+.sb-link .ic{width:18px;text-align:center}
+.sb-foot{border-top:1px solid var(--border);padding:12px 18px;font-size:12px}
+.sb-foot .who{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-foot .role{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-top:1px}
+.main{margin-left:var(--sb-w);padding:0 24px 48px;min-height:100vh}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:20px;position:sticky;top:0;background:var(--bg);z-index:50}
+.topbar h1{font-size:19px;font-weight:700}
+.topbar .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.hamburger{display:none;background:none;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:16px}
+
+/* ---- KPI cards ---- */
+.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:22px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:15px;position:relative;overflow:hidden}
+.kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--muted)}
+.kpi.ok::before{background:var(--success)}
+.kpi.watch::before{background:var(--warning)}
+.kpi.warn::before{background:var(--orange)}
+.kpi.crit::before{background:var(--danger)}
+.kpi.info::before{background:var(--primary)}
+.kpi .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:7px;line-height:1.3}
+.kpi .v{font-size:28px;font-weight:800;line-height:1}
+.kpi .sub{font-size:11px;color:var(--muted);margin-top:5px}
+
+/* ---- Panels & tables ---- */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:22px;overflow:hidden}
+.panel-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.panel-h .t{font-size:14px;font-weight:700}
+.panel-b{padding:4px 0}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 14px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;font-weight:700}
+td{padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr.clickable{cursor:pointer}
+tr.clickable:hover td{background:var(--surface2)}
+.empty{padding:28px 16px;text-align:center;color:var(--muted);font-size:13px}
+
+/* ---- Badges ---- */
+.badge{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;line-height:1.5}
+.b-ok{background:rgba(63,185,80,.16);color:var(--success)}
+.b-soon{background:rgba(240,136,62,.16);color:var(--orange)}
+.b-over{background:rgba(248,81,73,.16);color:var(--danger)}
+.b-due{background:rgba(210,153,34,.16);color:var(--warning)}
+.b-done{background:rgba(63,185,80,.16);color:var(--success)}
+.b-miss{background:rgba(248,81,73,.16);color:var(--danger)}
+.b-sub{background:rgba(63,185,80,.16);color:var(--success)}
+.b-fail{background:rgba(248,81,73,.16);color:var(--danger)}
+.b-pass{background:rgba(63,185,80,.16);color:var(--success)}
+.b-muted{background:var(--surface2);color:var(--muted)}
+
+/* ---- Forms ---- */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;font-weight:600}
+.field input,.field select,.field textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 11px;font-size:14px}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--primary)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.hint{font-size:11px;color:var(--muted);margin-top:4px}
+
+/* ---- Tabs section wrap ---- */
+.tab-page{display:none}
+.tab-page.active{display:block}
+.section-note{font-size:12px;color:var(--muted);margin:-8px 0 18px}
+
+/* ---- Modal ---- */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px}
+.modal-bg.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;width:100%;max-width:640px;box-shadow:0 12px 48px rgba(0,0,0,.5)}
+.modal-h{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;border-bottom:1px solid var(--border)}
+.modal-h .t{font-size:15px;font-weight:700}
+.modal-x{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1}
+.modal-b{padding:20px}
+.modal-f{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--border)}
+
+/* inspection checklist */
+.insp-item{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border)}
+.insp-item .name{font-size:13px}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.seg button{background:var(--bg);border:none;color:var(--muted);padding:5px 12px;font-size:12px;cursor:pointer;border-right:1px solid var(--border)}
+.seg button:last-child{border-right:none}
+.seg button.on-pass{background:var(--success);color:#fff}
+.seg button.on-fail{background:var(--danger);color:#fff}
+.seg button.on-na{background:var(--surface2);color:var(--text)}
+
+/* toast */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:11px 18px;border-radius:8px;font-size:13px;z-index:900;display:none;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+#toast.err{border-color:var(--danger)}
+#toast.ok{border-color:var(--success)}
+
+/* ---- Login ---- */
+#login{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:800;padding:20px}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;width:100%;max-width:380px}
+.login-card .brand{font-size:20px;font-weight:800;text-align:center}
+.login-card .tag{font-size:12px;color:var(--muted);text-align:center;margin:4px 0 24px}
+.login-err{color:var(--danger);font-size:12px;margin-top:10px;min-height:16px}
+.login-switch{font-size:12px;color:var(--muted);text-align:center;margin-top:16px}
+
+.pill-row{display:flex;gap:6px;flex-wrap:wrap}
+.chip{padding:4px 11px;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);user-select:none}
+.chip.active{background:var(--primary);border-color:var(--primary);color:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px}
+.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px}
+.chart-box .ct{font-size:12px;font-weight:700;margin-bottom:10px}
+.chart-box canvas{max-height:220px}
+
+@media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(3,1fr)}.grid2,.charts-grid{grid-template-columns:1fr}}
+@media(max-width:760px){
+  .sidebar{transform:translateX(-100%)}
+  .sidebar.open{transform:translateX(0)}
+  .main{margin-left:0;padding:0 14px 40px}
+  .hamburger{display:block}
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .form-row{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login">
+  <div class="login-card">
+    <div class="brand">🚚 AFS Fleet</div>
+    <div class="tag">Vehicle Tracking &amp; Maintenance</div>
+    <div class="field"><label>Work Email</label><input id="lg-email" type="email" autocomplete="username" placeholder="you@afsgroup.com"></div>
+    <div class="field"><label>Password</label><input id="lg-pass" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+    <button class="btn primary" style="width:100%" id="lg-btn" onclick="doAuth()">Sign In</button>
+    <div class="login-err" id="lg-err"></div>
+    <div class="login-switch">
+      <span id="lg-mode-txt">New here?</span>
+      <a href="#" onclick="toggleAuthMode();return false" id="lg-switch">Create an account</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-brand"><div class="t">🚚 AFS Fleet</div><div class="s">Vehicle Tracking &amp; Maintenance</div></div>
+    <nav class="sb-nav" id="sb-nav"></nav>
+    <div class="sb-foot">
+      <div class="who" id="sb-who">—</div>
+      <div class="role" id="sb-role">—</div>
+      <button class="btn sm" style="width:100%;margin-top:10px" onclick="signOut()">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="hamburger" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <div><h1 id="page-title">Fleet Overview</h1><div class="sub" id="page-sub"></div></div>
+      </div>
+      <div id="topbar-actions"></div>
+    </div>
+
+    <!-- OVERVIEW -->
+    <section class="tab-page" data-tab="overview">
+      <div class="kpi-grid" id="kpi-grid"></div>
+      <div class="charts-grid">
+        <div class="chart-box"><div class="ct">Oil Change Status</div><canvas id="chart-oil"></canvas></div>
+        <div class="chart-box"><div class="ct">This Week's Mileage Reporting</div><canvas id="chart-mileage"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><div class="t">Needs Attention</div></div>
+        <div class="tbl-wrap"><table id="attention-tbl"></table></div>
+      </div>
+    </section>
+
+    <!-- VEHICLES -->
+    <section class="tab-page" data-tab="vehicles">
+      <div class="panel">
+        <div class="panel-h"><div class="t">Vehicle List</div><span class="hint" id="veh-count"></span></div>
+        <div class="tbl-wrap"><table id="vehicles-tbl"></table></div>
+      </div>
+    </section>
+
+    <!-- MY REPORT -->
+    <section class="tab-page" data-tab="myreport">
+      <div class="grid2">
+        <div class="panel">
+          <div class="panel-h"><div class="t">Submit Current Mileage</div></div>
+          <div class="panel-b" style="padding:20px" id="report-form-wrap"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><div class="t">My Submission History</div></div>
+          <div class="tbl-wrap"><table id="myhistory-tbl"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DRIVERS -->
+    <section class="tab-page" data-tab="drivers">
+      <div class="panel">
+        <div class="panel-h"><div class="t">Driver Status — This Week</div><span class="hint" id="week-label"></span></div>
+        <div class="tbl-wrap"><table id="drivers-tbl"></table></div>
+      </div>
+    </section>
+
+    <!-- MAINTENANCE -->
+    <section class="tab-page" data-tab="maintenance">
+      <div class="panel">
+        <div class="panel-h"><div class="t">Overdue Oil Changes</div></div>
+        <div class="tbl-wrap"><table id="maint-overdue-tbl"></table></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><div class="t">Upcoming Oil Changes (Due Soon)</div></div>
+        <div class="tbl-wrap"><table id="maint-soon-tbl"></table></div>
+      </div>
+    </section>
+
+    <!-- INSPECTIONS -->
+    <section class="tab-page" data-tab="inspections">
+      <div class="panel">
+        <div class="panel-h"><div class="t">Monthly Inspection Status</div><span class="hint" id="insp-month-label"></span></div>
+        <div class="tbl-wrap"><table id="inspections-tbl"></table></div>
+      </div>
+    </section>
+
+    <!-- REPORTS -->
+    <section class="tab-page" data-tab="reports">
+      <div class="panel">
+        <div class="panel-h">
+          <div class="t">Reports</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="report-select" onchange="renderReport()" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px"></select>
+            <button class="btn sm" onclick="exportReport('xlsx')">⬇ Excel</button>
+            <button class="btn sm" onclick="exportReport('pdf')">⬇ PDF</button>
+          </div>
+        </div>
+        <div class="tbl-wrap"><table id="report-tbl"></table></div>
+      </div>
+    </section>
+
+    <!-- ADMIN -->
+    <section class="tab-page" data-tab="admin">
+      <div class="panel">
+        <div class="panel-h">
+          <div class="t">Roster Import</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn sm" onclick="downloadTemplate()">Template CSV</button>
+            <label class="btn sm primary" style="cursor:pointer">Import file<input type="file" id="roster-file" accept=".csv,.xlsx,.xls" style="display:none" onchange="importRoster(event)"></label>
+          </div>
+        </div>
+        <div class="panel-b" style="padding:14px 16px"><div class="hint">Upload a CSV/XLSX with columns: vehicleNo, description, driverName, driverEmail, driverPhone, role, managerEmail, currentMileage, lastOilChangeMileage, oilChangeInterval. Existing vehicles/employees with matching keys are updated.</div></div>
+      </div>
+      <div class="grid2">
+        <div class="panel">
+          <div class="panel-h"><div class="t">Employees</div><button class="btn sm" onclick="openEmployee()">+ Add</button></div>
+          <div class="tbl-wrap"><table id="emp-tbl"></table></div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><div class="t">Vehicles</div><button class="btn sm" onclick="openVehicle()">+ Add</button></div>
+          <div class="tbl-wrap"><table id="admveh-tbl"></table></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><div class="t">Notification Log</div><span class="hint">Automated emails sent by the system</span></div>
+        <div class="tbl-wrap"><table id="notif-tbl"></table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ MODAL ============ -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <div class="modal-h"><div class="t" id="modal-title">—</div><button class="modal-x" onclick="closeModal()">×</button></div>
+    <div class="modal-b" id="modal-body"></div>
+    <div class="modal-f" id="modal-foot"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ============================================================
+   AFS Fleet Dashboard — single-file app
+   ============================================================ */
+
+/* ---- Firebase config (fill in after creating the afs-fleet project) ---- */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAbFHaLW0cRIaKD9AtFg92cPcxItWljR7I",
+  authDomain: "afs-fleet.firebaseapp.com",
+  projectId: "afs-fleet",
+  storageBucket: "afs-fleet.firebasestorage.app",
+  messagingSenderId: "201567047753",
+  appId: "1:201567047753:web:37ae8533c883253a77af98"
+};
+/* URL of the deployed form/dashboard, embedded in reminder emails (set in functions). */
+
+/* ---- Mode detection ---- */
+const params = new URLSearchParams(location.search);
+const DEV_ROLE = params.get('dev'); // 'admin' | 'manager' | 'driver' | null
+const DEV_MODE = !!DEV_ROLE;
+
+let _db = null, _auth = null;
+let authMode = 'signin';
+
+/* ---- Global state ---- */
+const S = {
+  user: null,           // { email, role, empId, managerId, name }
+  employees: [],        // fleet_employees
+  vehicles: [],         // fleet_vehicles
+  submissions: [],      // fleet_mileage_submissions
+  inspections: [],      // fleet_inspections
+  weekStatus: [],       // fleet_week_status
+  notifications: [],    // fleet_notifications
+  activeTab: 'overview',
+  charts: {}
+};
+
+/* ============================================================
+   DATE / KEY HELPERS
+   ============================================================ */
+function iso(d){ const x=new Date(d); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); }
+function hm(d){ const x=new Date(d); return String(x.getHours()).padStart(2,'0')+':'+String(x.getMinutes()).padStart(2,'0'); }
+function fridayOfWeek(d){
+  const date=new Date(d||Date.now()); date.setHours(0,0,0,0);
+  const day=date.getDay();               // 0 Sun .. 6 Sat
+  const diffToMon=(day===0?-6:1-day);
+  const mon=new Date(date); mon.setDate(date.getDate()+diffToMon);
+  const fri=new Date(mon); fri.setDate(mon.getDate()+4);
+  return fri;
+}
+function weekKey(d){ return 'friday-'+iso(fridayOfWeek(d||new Date())); }
+function monthKey(d){ const x=new Date(d||new Date()); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0'); }
+function fmtDate(v){ if(!v) return '—'; const d=toDate(v); return d? d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}):'—'; }
+function fmtDateTime(v){ if(!v) return '—'; const d=toDate(v); return d? d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'—'; }
+function toDate(v){ if(!v) return null; if(v.toDate) return v.toDate(); if(v.seconds) return new Date(v.seconds*1000); const d=new Date(v); return isNaN(d)?null:d; }
+function num(v){ const n=Number(v); return isNaN(n)?0:n; }
+function nowTs(){ return DEV_MODE ? new Date().toISOString() : firebase.firestore.FieldValue.serverTimestamp(); }
+
+/* ============================================================
+   CALCULATIONS
+   ============================================================ */
+const CFG = { oilDueSoonMiles:500, inspectionOverdueDay:25 };
+
+function oilStatus(v){
+  const interval=num(v.oilChangeInterval), last=num(v.lastOilChangeMileage), cur=num(v.currentMileage);
+  const next=last+interval;
+  const remaining=next-cur;
+  const dueSoonMiles=num(v.oilDueSoonMiles)||CFG.oilDueSoonMiles;
+  let state='ok';
+  if(remaining<=0) state='overdue';
+  else if(remaining<=dueSoonMiles) state='soon';
+  return { next, remaining, state };
+}
+function inspectionStatus(vehicleNo){
+  const key=vehicleNo+'_'+monthKey();
+  const insp=S.inspections.find(i=>i.id===key || (i.vehicleNo===vehicleNo && i.monthKey===monthKey()));
+  if(insp) return { state:'done', result:insp.result, insp };
+  const overdue=new Date().getDate()>CFG.inspectionOverdueDay;
+  return { state: overdue?'overdue':'due', result:null, insp:null };
+}
+function weekSubmitted(email, wk){
+  wk=wk||weekKey();
+  const ws=S.weekStatus.find(w=>w.id===wk+'_'+email || (w.weekKey===wk && w.driverEmail===email));
+  if(ws) return { submitted:!!ws.submitted, at:ws.submittedAt };
+  // fallback: any submission this week
+  const sub=S.submissions.find(s=>s.driverEmail===email && s.weekKey===wk);
+  return { submitted:!!sub, at:sub?sub.createdAt:null };
+}
+function driverOfVehicle(v){ return S.employees.find(e=>e.email===v.assignedDriverEmail); }
+function empByEmail(email){ return S.employees.find(e=>e.email===email); }
+function vehicleOfDriver(email){ return S.vehicles.find(v=>v.assignedDriverEmail===email); }
+function vehMakeModel(v){ const s=[v.year,v.make,v.model].filter(Boolean).join(' '); return s|| (v.description||'—'); }
+
+/* ============================================================
+   ROLE GATING
+   ============================================================ */
+const TABS=[
+  {id:'overview',label:'Overview',icon:'📊',title:'Fleet Overview',roles:['driver','manager','admin']},
+  {id:'vehicles',label:'Vehicles',icon:'🚚',title:'Vehicle List',roles:['driver','manager','admin']},
+  {id:'myreport',label:'My Report',icon:'📝',title:'Submit Mileage',roles:['driver','manager','admin']},
+  {id:'drivers',label:'Driver Status',icon:'👥',title:'Driver Status',roles:['manager','admin']},
+  {id:'maintenance',label:'Maintenance',icon:'🔧',title:'Maintenance',roles:['driver','manager','admin']},
+  {id:'inspections',label:'Inspections',icon:'✅',title:'Inspections',roles:['driver','manager','admin']},
+  {id:'reports',label:'Reports',icon:'📄',title:'Reports',roles:['manager','admin']},
+  {id:'admin',label:'Admin',icon:'⚙️',title:'Administration',roles:['admin']},
+];
+function canSee(tab){ const t=TABS.find(x=>x.id===tab); return t && t.roles.includes(S.user.role); }
+function isTeamMember(email){
+  const e=empByEmail(email); if(!e) return false;
+  return e.managerId===S.user.empId || e.email===S.user.email;
+}
+function visibleVehicles(){
+  if(S.user.role==='admin') return S.vehicles;
+  if(S.user.role==='manager') return S.vehicles.filter(v=>{ const d=driverOfVehicle(v); return d && (d.managerId===S.user.empId || d.email===S.user.email); });
+  return S.vehicles.filter(v=>v.assignedDriverEmail===S.user.email); // driver
+}
+function visibleEmployees(){
+  if(S.user.role==='admin') return S.employees;
+  if(S.user.role==='manager') return S.employees.filter(e=>e.managerId===S.user.empId || e.email===S.user.email);
+  return S.employees.filter(e=>e.email===S.user.email);
+}
+
+/* ============================================================
+   DATA ACCESS LAYER (dev in-memory  vs  live Firestore)
+   ============================================================ */
+const COLL={employees:'fleet_employees',vehicles:'fleet_vehicles',submissions:'fleet_mileage_submissions',
+  inspections:'fleet_inspections',weekStatus:'fleet_week_status',notifications:'fleet_notifications'};
+
+async function dbSet(key,id,data){
+  if(DEV_MODE){ const arr=S[key]; const i=arr.findIndex(x=>x.id===id); const rec={...data,id}; if(i>=0)arr[i]={...arr[i],...rec}; else arr.push(rec); renderAll(); return; }
+  await _db.collection(COLL[key]).doc(id).set(data,{merge:true});
+}
+async function dbAdd(key,data){
+  if(DEV_MODE){ const id='local_'+Math.floor(performance.now()*1000); S[key].push({...data,id}); renderAll(); return id; }
+  const ref=await _db.collection(COLL[key]).add(data); return ref.id;
+}
+async function dbDelete(key,id){
+  if(DEV_MODE){ S[key]=S[key].filter(x=>x.id!==id); renderAll(); return; }
+  await _db.collection(COLL[key]).doc(id).delete();
+}
+
+/* ============================================================
+   AUTH
+   ============================================================ */
+function toggleAuthMode(){
+  authMode = authMode==='signin' ? 'register':'signin';
+  document.getElementById('lg-btn').textContent = authMode==='signin'?'Sign In':'Create Account';
+  document.getElementById('lg-mode-txt').textContent = authMode==='signin'?'New here?':'Have an account?';
+  document.getElementById('lg-switch').textContent = authMode==='signin'?'Create an account':'Sign in instead';
+  document.getElementById('lg-err').textContent='';
+}
+async function doAuth(){
+  const email=document.getElementById('lg-email').value.trim().toLowerCase();
+  const pass=document.getElementById('lg-pass').value;
+  const err=document.getElementById('lg-err');
+  err.textContent='';
+  if(!email||!pass){ err.textContent='Enter email and password.'; return; }
+  try{
+    if(authMode==='register') await _auth.createUserWithEmailAndPassword(email,pass);
+    else await _auth.signInWithEmailAndPassword(email,pass);
+    // onAuthStateChanged handles the rest
+  }catch(e){ err.textContent = friendlyAuthErr(e); }
+}
+function friendlyAuthErr(e){
+  const c=(e&&e.code)||'';
+  if(c.includes('user-not-found')||c.includes('invalid-credential')) return 'Email or password is incorrect.';
+  if(c.includes('email-already-in-use')) return 'An account with that email already exists — sign in instead.';
+  if(c.includes('weak-password')) return 'Password must be at least 6 characters.';
+  if(c.includes('invalid-email')) return 'That is not a valid email address.';
+  return (e&&e.message)||'Authentication failed.';
+}
+function signOut(){ if(DEV_MODE){ location.href=location.pathname; return; } _auth.signOut(); }
+
+async function resolveEmployee(email){
+  if(DEV_MODE) return S.employees.find(e=>e.email===email)||null;
+  const snap=await _db.collection(COLL.employees).doc(email).get();
+  return snap.exists ? {id:snap.id,...snap.data()} : null;
+}
+
+function showAccessDenied(email){
+  document.getElementById('login').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.querySelector('.login-card').innerHTML=
+    '<div class="brand">🚚 AFS Fleet</div><div class="tag">Access not provisioned</div>'+
+    '<p style="font-size:13px;color:var(--muted);line-height:1.6">The account <b style="color:var(--text)">'+email+
+    '</b> is not on the fleet roster yet. Ask an administrator to add you, then sign in again.</p>'+
+    '<button class="btn primary" style="width:100%;margin-top:20px" onclick="signOut()">Sign out</button>';
+}
+
+/* ============================================================
+   LIVE LISTENERS (live mode only)
+   ============================================================ */
+function attachListeners(){
+  const map=[['employees',COLL.employees],['vehicles',COLL.vehicles],['submissions',COLL.submissions],
+    ['inspections',COLL.inspections],['weekStatus',COLL.weekStatus],['notifications',COLL.notifications]];
+  map.forEach(([key,coll])=>{
+    _db.collection(coll).onSnapshot(snap=>{
+      S[key]=snap.docs.map(d=>({id:d.id,...d.data()}));
+      renderAll();
+    },err=>console.warn('listener '+coll,err));
+  });
+}
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+window.addEventListener('DOMContentLoaded',()=>{
+  buildNav();
+  buildReportSelect();
+  if(DEV_MODE){ bootDev(); }
+  else { bootLive(); }
+  document.getElementById('lg-pass').addEventListener('keydown',e=>{ if(e.key==='Enter') doAuth(); });
+});
+
+function bootDev(){
+  loadSampleData();
+  const role=DEV_ROLE;
+  // pick a representative user per role
+  let u;
+  if(role==='admin') u=S.employees.find(e=>e.role==='admin');
+  else if(role==='manager') u=S.employees.find(e=>e.role==='manager');
+  else u=S.employees.find(e=>e.role==='driver');
+  S.user={email:u.email,role:u.role,empId:u.empId,managerId:u.managerId,name:u.name};
+  startApp();
+}
+function bootLive(){
+  try{ firebase.initializeApp(FIREBASE_CONFIG); _db=firebase.firestore(); _auth=firebase.auth(); }
+  catch(e){ alert('Firebase init failed. Fill in FIREBASE_CONFIG.\n\n'+e.message); return; }
+  _auth.onAuthStateChanged(async user=>{
+    if(!user){ document.getElementById('login').style.display='flex'; document.getElementById('app').style.display='none'; return; }
+    const emp=await resolveEmployee(user.email.toLowerCase());
+    if(!emp){ showAccessDenied(user.email); return; }
+    S.user={email:emp.email,role:emp.role||'driver',empId:emp.empId,managerId:emp.managerId,name:emp.name};
+    attachListeners();
+    startApp();
+  });
+}
+function startApp(){
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('sb-who').textContent=S.user.name||S.user.email;
+  document.getElementById('sb-role').textContent=S.user.role;
+  // default tab = first visible
+  const first=TABS.find(t=>t.roles.includes(S.user.role));
+  switchTab(S.user.role==='driver'?'myreport':(first?first.id:'overview'));
+  renderAll();
+}
+
+/* ============================================================
+   NAV / TABS
+   ============================================================ */
+function buildNav(){ /* built after user known via renderNav */ }
+function renderNav(){
+  const nav=document.getElementById('sb-nav');
+  nav.innerHTML=TABS.filter(t=>t.roles.includes(S.user.role)).map(t=>
+    '<div class="sb-link'+(t.id===S.activeTab?' active':'')+'" onclick="switchTab(\''+t.id+'\')">'+
+    '<span class="ic">'+t.icon+'</span><span>'+t.label+'</span></div>').join('');
+}
+function switchTab(tab){
+  if(!S.user) return;
+  if(!canSee(tab)){ tab=TABS.find(t=>t.roles.includes(S.user.role)).id; }
+  S.activeTab=tab;
+  document.querySelectorAll('.tab-page').forEach(p=>p.classList.toggle('active',p.dataset.tab===tab));
+  const t=TABS.find(x=>x.id===tab);
+  document.getElementById('page-title').textContent=t.title;
+  document.getElementById('sidebar').classList.remove('open');
+  renderNav();
+  renderAll();
+}
+
+/* ============================================================
+   RENDER — dispatch
+   ============================================================ */
+function renderAll(){
+  if(!S.user) return;
+  renderNav();
+  const t=S.activeTab;
+  if(t==='overview') renderOverview();
+  else if(t==='vehicles') renderVehicles();
+  else if(t==='myreport') renderMyReport();
+  else if(t==='drivers') renderDrivers();
+  else if(t==='maintenance') renderMaintenance();
+  else if(t==='inspections') renderInspections();
+  else if(t==='reports') renderReport();
+  else if(t==='admin') renderAdmin();
+  renderTopbarActions();
+}
+function renderTopbarActions(){
+  const box=document.getElementById('topbar-actions');
+  const wk=weekKey();
+  document.getElementById('page-sub').textContent = 'Week of '+fmtDate(fridayOfWeek())+' · '+(S.user.name||S.user.email);
+  box.innerHTML='';
+}
+
+/* ---------- OVERVIEW ---------- */
+function renderOverview(){
+  const vs=visibleVehicles();
+  const oil=vs.map(v=>oilStatus(v));
+  const oilDue=oil.filter(o=>o.state==='soon').length;
+  const oilOver=oil.filter(o=>o.state==='overdue').length;
+  const insp=vs.map(v=>inspectionStatus(v.vehicleNo));
+  const inspDue=insp.filter(i=>i.state==='due').length;
+  const inspOver=insp.filter(i=>i.state==='overdue').length;
+  const drivers=vs.map(v=>v.assignedDriverEmail).filter(Boolean);
+  const missing=drivers.filter(e=>!weekSubmitted(e).submitted).length;
+
+  const kpis=[
+    {l:'Total Vehicles',v:vs.length,c:'info'},
+    {l:'Oil Changes Due Soon',v:oilDue,c:oilDue?'warn':'ok'},
+    {l:'Oil Changes Overdue',v:oilOver,c:oilOver?'crit':'ok'},
+    {l:'Missing Mileage (wk)',v:missing,c:missing?'warn':'ok'},
+    {l:'Inspections Due',v:inspDue,c:inspDue?'watch':'ok'},
+    {l:'Inspections Overdue',v:inspOver,c:inspOver?'crit':'ok'},
+  ];
+  document.getElementById('kpi-grid').innerHTML=kpis.map(k=>
+    '<div class="kpi '+k.c+'"><div class="l">'+k.l+'</div><div class="v">'+k.v+'</div></div>').join('');
+
+  // attention table
+  const rows=[];
+  vs.forEach(v=>{
+    const o=oilStatus(v); const i=inspectionStatus(v.vehicleNo); const d=driverOfVehicle(v);
+    if(o.state==='overdue') rows.push([v.vehicleNo,d?d.name:'—','Oil change OVERDUE by '+Math.abs(o.remaining).toLocaleString()+' mi','b-over','Overdue']);
+    else if(o.state==='soon') rows.push([v.vehicleNo,d?d.name:'—','Oil change due in '+o.remaining.toLocaleString()+' mi','b-soon','Due Soon']);
+    if(i.state==='overdue') rows.push([v.vehicleNo,d?d.name:'—','Monthly inspection OVERDUE','b-over','Overdue']);
+    else if(i.state==='due') rows.push([v.vehicleNo,d?d.name:'—','Monthly inspection due','b-due','Due']);
+    if(v.assignedDriverEmail && !weekSubmitted(v.assignedDriverEmail).submitted) rows.push([v.vehicleNo,d?d.name:'—','Mileage not submitted this week','b-miss','Missing']);
+  });
+  const tbl=document.getElementById('attention-tbl');
+  if(!rows.length){ tbl.innerHTML='<tbody><tr><td class="empty">✅ Nothing needs attention right now.</td></tr></tbody>'; }
+  else tbl.innerHTML='<thead><tr><th>Vehicle</th><th>Driver</th><th>Issue</th><th>Status</th></tr></thead><tbody>'+
+    rows.map(r=>'<tr><td><b>'+r[0]+'</b></td><td>'+r[1]+'</td><td>'+r[2]+'</td><td><span class="badge '+r[3]+'">'+r[4]+'</span></td></tr>').join('')+'</tbody>';
+
+  drawOverviewCharts(oil,drivers);
+}
+function drawOverviewCharts(oil,drivers){
+  const ok=oil.filter(o=>o.state==='ok').length, soon=oil.filter(o=>o.state==='soon').length, over=oil.filter(o=>o.state==='overdue').length;
+  const sub=drivers.filter(e=>weekSubmitted(e).submitted).length, miss=drivers.length-sub;
+  mkChart('chart-oil','doughnut',['OK','Due Soon','Overdue'],[ok,soon,over],['#3fb950','#f0883e','#f85149']);
+  mkChart('chart-mileage','doughnut',['Submitted','Missing'],[sub,miss],['#3fb950','#f85149']);
+}
+function mkChart(id,type,labels,data,colors){
+  const el=document.getElementById(id); if(!el||!window.Chart) return;
+  if(S.charts[id]) S.charts[id].destroy();
+  S.charts[id]=new Chart(el,{type,data:{labels,datasets:[{data,backgroundColor:colors,borderColor:'#161b22',borderWidth:2}]},
+    options:{plugins:{legend:{position:'bottom',labels:{color:'#8b949e',boxWidth:12,padding:12}}},cutout:'62%'}});
+}
+
+/* ---------- VEHICLES ---------- */
+function renderVehicles(){
+  const vs=visibleVehicles();
+  document.getElementById('veh-count').textContent=vs.length+' vehicle'+(vs.length===1?'':'s');
+  const tbl=document.getElementById('vehicles-tbl');
+  if(!vs.length){ tbl.innerHTML='<tbody><tr><td class="empty">No vehicles.</td></tr></tbody>'; return; }
+  tbl.innerHTML='<thead><tr><th>Vehicle</th><th>Make / Model</th><th>Driver</th><th>Current Mi</th><th>Next Oil</th><th>Miles Left</th><th>Oil</th><th>Inspection</th><th>Last Update</th></tr></thead><tbody>'+
+    vs.map(v=>{
+      const o=oilStatus(v); const i=inspectionStatus(v.vehicleNo); const d=driverOfVehicle(v);
+      return '<tr><td><b>'+v.vehicleNo+'</b>'+(v.vin?'<div class="hint">VIN '+v.vin+'</div>':'')+'</td>'+
+        '<td>'+vehMakeModel(v)+(v.description?'<div class="hint">'+v.description+'</div>':'')+'</td>'+
+        '<td>'+(d?d.name:'<span class="hint">unassigned</span>')+'</td>'+
+        '<td>'+num(v.currentMileage).toLocaleString()+'</td>'+
+        '<td>'+o.next.toLocaleString()+'</td>'+
+        '<td>'+(o.remaining<0?'<span style="color:var(--danger)">'+o.remaining.toLocaleString()+'</span>':o.remaining.toLocaleString())+'</td>'+
+        '<td>'+oilBadge(o.state)+'</td>'+
+        '<td>'+inspBadge(i)+'</td>'+
+        '<td class="hint">'+fmtDateTime(v.currentMileageAt)+'</td></tr>';
+    }).join('')+'</tbody>';
+}
+function oilBadge(s){ return s==='overdue'?'<span class="badge b-over">Overdue</span>':s==='soon'?'<span class="badge b-soon">Due Soon</span>':'<span class="badge b-ok">OK</span>'; }
+function inspBadge(i){ if(i.state==='done') return '<span class="badge '+(i.result==='fail'?'b-fail':'b-done')+'">'+(i.result==='fail'?'Failed':'Completed')+'</span>'; return i.state==='overdue'?'<span class="badge b-over">Overdue</span>':'<span class="badge b-due">Due</span>'; }
+
+/* ---------- MY REPORT ---------- */
+function renderMyReport(){
+  const wrap=document.getElementById('report-form-wrap');
+  // vehicle options: driver -> own; manager/admin -> any visible
+  let vehs=visibleVehicles();
+  if(S.user.role!=='driver'){ vehs=S.vehicles; }
+  const myVeh=vehicleOfDriver(S.user.email);
+  if(!vehs.length){ wrap.innerHTML='<div class="empty">No vehicle assigned to you. Contact an administrator.</div>'; }
+  else {
+    wrap.innerHTML=
+      '<div class="field"><label>Vehicle</label><select id="mr-vehicle">'+
+        vehs.map(v=>'<option value="'+v.vehicleNo+'"'+((myVeh&&myVeh.vehicleNo===v.vehicleNo)?' selected':'')+'>'+v.vehicleNo+(v.description?' — '+v.description:'')+'</option>').join('')+
+      '</select></div>'+
+      '<div class="field"><label>Current Odometer Mileage</label><input id="mr-mileage" type="number" inputmode="numeric" placeholder="e.g. 84210"></div>'+
+      '<div class="field"><label>Next Oil Change Due At (odometer) <span style="text-transform:none;color:var(--muted)">— optional, from your windshield sticker</span></label><input id="mr-nextoil" type="number" inputmode="numeric" placeholder="e.g. 89000"></div>'+
+      '<button class="btn primary" style="width:100%" onclick="submitMileage()">Submit</button>'+
+      '<div class="hint" style="margin-top:10px">First time? Please add your <b>next oil change</b> mileage so we can track it. Submitting stops this week\'s reminders for you.</div>';
+  }
+  // history
+  const mine=S.submissions.filter(s=> S.user.role==='driver' ? s.driverEmail===S.user.email : true )
+    .slice().sort((a,b)=> (toDate(b.createdAt)||0)-(toDate(a.createdAt)||0)).slice(0,50);
+  const tbl=document.getElementById('myhistory-tbl');
+  if(!mine.length){ tbl.innerHTML='<tbody><tr><td class="empty">No submissions yet.</td></tr></tbody>'; return; }
+  tbl.innerHTML='<thead><tr><th>Date</th><th>Vehicle</th>'+(S.user.role!=='driver'?'<th>Driver</th>':'')+'<th>Mileage</th></tr></thead><tbody>'+
+    mine.map(s=>'<tr><td>'+fmtDateTime(s.createdAt)+'</td><td><b>'+s.vehicleNo+'</b></td>'+
+      (S.user.role!=='driver'?'<td>'+(empByEmail(s.driverEmail)?empByEmail(s.driverEmail).name:s.driverEmail)+'</td>':'')+
+      '<td>'+num(s.mileage).toLocaleString()+'</td></tr>').join('')+'</tbody>';
+}
+async function submitMileage(){
+  const vehicleNo=document.getElementById('mr-vehicle').value;
+  const mileage=num(document.getElementById('mr-mileage').value);
+  if(!vehicleNo){ toast('Select a vehicle.','err'); return; }
+  if(mileage<=0){ toast('Enter a valid mileage.','err'); return; }
+  const veh=S.vehicles.find(v=>v.vehicleNo===vehicleNo);
+  if(mileage < num(veh.currentMileage)){ if(!confirm('That mileage ('+mileage.toLocaleString()+') is lower than the last reading ('+num(veh.currentMileage).toLocaleString()+'). Submit anyway?')) return; }
+  const driverEmail = S.user.role==='driver' ? S.user.email : (veh.assignedDriverEmail||S.user.email);
+  const wk=weekKey(); const now=new Date();
+  try{
+    const subId=await dbAdd('submissions',{driverEmail,vehicleNo,mileage,reportDate:iso(now),reportTime:hm(now),weekKey:wk,source:'web',submittedByUid:S.user.email,createdAt:nowTs()});
+    const vehUpdate={currentMileage:mileage,currentMileageAt:nowTs()};
+    const nextOil=num((document.getElementById('mr-nextoil')||{}).value);
+    if(nextOil>0){ vehUpdate.lastOilChangeMileage=nextOil-(num(veh.oilChangeInterval)||5000); vehUpdate.lastOilChangeDate=nowTs(); }
+    await dbSet('vehicles',vehicleNo,vehUpdate);
+    await dbSet('weekStatus',wk+'_'+driverEmail,{weekKey:wk,driverEmail,vehicleNo,submitted:true,submittedAt:nowTs(),submissionId:subId});
+    document.getElementById('mr-mileage').value='';
+    toast('Mileage submitted for '+vehicleNo+' ✓','ok');
+  }catch(e){ toast('Submit failed: '+e.message,'err'); }
+}
+
+/* ---------- DRIVERS ---------- */
+function renderDrivers(){
+  const vs=visibleVehicles();
+  const rows=vs.filter(v=>v.assignedDriverEmail).map(v=>{
+    const d=driverOfVehicle(v); const ws=weekSubmitted(v.assignedDriverEmail);
+    return {name:d?d.name:v.assignedDriverEmail,vehicle:v.vehicleNo,submitted:ws.submitted,at:ws.at};
+  });
+  document.getElementById('week-label').textContent='Friday '+fmtDate(fridayOfWeek());
+  const tbl=document.getElementById('drivers-tbl');
+  if(!rows.length){ tbl.innerHTML='<tbody><tr><td class="empty">No drivers.</td></tr></tbody>'; return; }
+  tbl.innerHTML='<thead><tr><th>Driver</th><th>Vehicle</th><th>This Week</th><th>Last Submission</th></tr></thead><tbody>'+
+    rows.map(r=>'<tr><td>'+r.name+'</td><td><b>'+r.vehicle+'</b></td>'+
+      '<td>'+(r.submitted?'<span class="badge b-sub">Submitted</span>':'<span class="badge b-miss">Missing</span>')+'</td>'+
+      '<td class="hint">'+fmtDateTime(r.at)+'</td></tr>').join('')+'</tbody>';
+}
+
+/* ---------- MAINTENANCE ---------- */
+function renderMaintenance(){
+  const vs=visibleVehicles().map(v=>({v,o:oilStatus(v)}));
+  const over=vs.filter(x=>x.o.state==='overdue').sort((a,b)=>a.o.remaining-b.o.remaining);
+  const soon=vs.filter(x=>x.o.state==='soon').sort((a,b)=>a.o.remaining-b.o.remaining);
+  fillMaint('maint-overdue-tbl',over,true);
+  fillMaint('maint-soon-tbl',soon,false);
+}
+function fillMaint(id,list,overdue){
+  const tbl=document.getElementById(id);
+  if(!list.length){ tbl.innerHTML='<tbody><tr><td class="empty">'+(overdue?'No overdue oil changes. 🎉':'Nothing due soon.')+'</td></tr></tbody>'; return; }
+  tbl.innerHTML='<thead><tr><th>Vehicle</th><th>Driver</th><th>Current Mi</th><th>Next Oil</th><th>Miles '+(overdue?'Over':'Left')+'</th></tr></thead><tbody>'+
+    list.map(x=>{const d=driverOfVehicle(x.v);return '<tr><td><b>'+x.v.vehicleNo+'</b></td><td>'+(d?d.name:'—')+'</td>'+
+      '<td>'+num(x.v.currentMileage).toLocaleString()+'</td><td>'+x.o.next.toLocaleString()+'</td>'+
+      '<td style="color:'+(overdue?'var(--danger)':'var(--orange)')+';font-weight:600">'+Math.abs(x.o.remaining).toLocaleString()+'</td></tr>';}).join('')+'</tbody>';
+}
+
+/* ---------- INSPECTIONS ---------- */
+function renderInspections(){
+  const vs=visibleVehicles();
+  const canDo=S.user.role==='manager'||S.user.role==='admin';
+  document.getElementById('insp-month-label').textContent=new Date().toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  const tbl=document.getElementById('inspections-tbl');
+  if(!vs.length){ tbl.innerHTML='<tbody><tr><td class="empty">No vehicles.</td></tr></tbody>'; return; }
+  tbl.innerHTML='<thead><tr><th>Vehicle</th><th>Driver</th><th>Status</th><th>Result</th><th>Completed</th><th></th></tr></thead><tbody>'+
+    vs.map(v=>{
+      const i=inspectionStatus(v.vehicleNo); const d=driverOfVehicle(v);
+      const canInspect=canDo && (S.user.role==='admin' || (d && d.managerId===S.user.empId));
+      return '<tr><td><b>'+v.vehicleNo+'</b></td><td>'+(d?d.name:'—')+'</td>'+
+        '<td>'+inspBadge(i)+'</td>'+
+        '<td>'+(i.insp?(i.result==='fail'?'<span class="badge b-fail">Fail</span>':'<span class="badge b-pass">Pass</span>'):'—')+'</td>'+
+        '<td class="hint">'+(i.insp?fmtDateTime(i.insp.completedAt):'—')+'</td>'+
+        '<td>'+(canInspect?'<button class="btn sm" onclick="openInspection(\''+v.vehicleNo+'\')">'+(i.insp?'Edit':'Complete')+'</button>':'')+'</td></tr>';
+    }).join('')+'</tbody>';
+}
+
+/* ---------- INSPECTION MODAL ---------- */
+const INSP_ITEMS=[['tires','Tires'],['lights','Lights'],['windshield','Windshield'],['mirrors','Mirrors'],['brakes','Brakes'],['fluids','Fluids'],['bodyDamage','Body / Damage'],['interior','Interior'],['cleanliness','Cleanliness'],['safetyEquipment','Safety Equipment']];
+let inspState={};
+function openInspection(vehicleNo){
+  const v=S.vehicles.find(x=>x.vehicleNo===vehicleNo);
+  const i=inspectionStatus(vehicleNo);
+  inspState={vehicleNo,items:{},notes:i.insp?i.insp.notes||'':'',result:i.insp?i.insp.result:'pass'};
+  INSP_ITEMS.forEach(([k])=>inspState.items[k]= i.insp&&i.insp.items?(i.insp.items[k]||'pass'):'pass');
+  if(i.insp&&i.insp.notes) inspState.notes=i.insp.notes;
+  document.getElementById('modal-title').textContent='Inspection — '+vehicleNo+' · '+new Date().toLocaleDateString(undefined,{month:'long',year:'numeric'});
+  renderInspModal();
+  document.getElementById('modal-foot').innerHTML='<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveInspection()">Save Inspection</button>';
+  openModal();
+}
+function renderInspModal(){
+  const body=document.getElementById('modal-body');
+  body.innerHTML=
+    INSP_ITEMS.map(([k,lbl])=>
+      '<div class="insp-item"><span class="name">'+lbl+'</span><span class="seg">'+
+      ['pass','fail','na'].map(val=>'<button class="'+(inspState.items[k]===val?'on-'+val:'')+'" onclick="setInsp(\''+k+'\',\''+val+'\')">'+(val==='na'?'N/A':val.charAt(0).toUpperCase()+val.slice(1))+'</button>').join('')+
+      '</span></div>').join('')+
+    '<div class="field" style="margin-top:16px"><label>Notes</label><textarea id="insp-notes" rows="3" placeholder="Observations, needed repairs...">'+inspState.notes+'</textarea></div>'+
+    '<div class="field"><label>Overall Result</label><div class="pill-row">'+
+      '<span class="chip'+(inspState.result==='pass'?' active':'')+'" onclick="setInspResult(\'pass\')">Pass</span>'+
+      '<span class="chip'+(inspState.result==='fail'?' active':'')+'" onclick="setInspResult(\'fail\')">Fail</span>'+
+      '</div><div class="hint" id="insp-auto"></div></div>';
+  updateInspAuto();
+}
+function setInsp(k,val){ inspState.items[k]=val; if(val==='fail') inspState.result='fail'; renderInspModal(); }
+function setInspResult(r){ inspState.result=r; renderInspModal(); }
+function updateInspAuto(){ const anyFail=Object.values(inspState.items).includes('fail'); document.getElementById('insp-auto').textContent = anyFail?'One or more items failed — overall result suggested as Fail.':''; }
+async function saveInspection(){
+  const notes=document.getElementById('insp-notes').value;
+  const v=S.vehicles.find(x=>x.vehicleNo===inspState.vehicleNo);
+  const d=driverOfVehicle(v);
+  const mk=monthKey(); const id=inspState.vehicleNo+'_'+mk;
+  try{
+    await dbSet('inspections',id,{vehicleNo:inspState.vehicleNo,monthKey:mk,driverEmail:v.assignedDriverEmail||null,
+      managerEmail:S.user.email,items:inspState.items,result:inspState.result,notes,completedAt:nowTs()});
+    closeModal(); toast('Inspection saved for '+inspState.vehicleNo+' ✓','ok');
+  }catch(e){ toast('Save failed: '+e.message,'err'); }
+}
+
+/* ---------- REPORTS ---------- */
+const REPORTS=[
+  {id:'mileage',name:'Mileage History'},
+  {id:'utilization',name:'Vehicle Utilization'},
+  {id:'oilhist',name:'Oil Change History'},
+  {id:'oilstatus',name:'Oil Maintenance Status'},
+  {id:'inspcompliance',name:'Inspection Compliance'},
+  {id:'overduemaint',name:'Overdue Maintenance'},
+  {id:'missed',name:'Missed Mileage Submissions'},
+];
+function buildReportSelect(){
+  const sel=document.getElementById('report-select');
+  sel.innerHTML=REPORTS.map(r=>'<option value="'+r.id+'">'+r.name+'</option>').join('');
+}
+let currentReport={cols:[],rows:[],name:''};
+function buildReportData(id){
+  const vs=visibleVehicles(); const vehNos=new Set(vs.map(v=>v.vehicleNo));
+  if(id==='mileage'){
+    const rows=S.submissions.filter(s=>vehNos.has(s.vehicleNo)).slice().sort((a,b)=>(toDate(b.createdAt)||0)-(toDate(a.createdAt)||0))
+      .map(s=>({Date:fmtDate(s.createdAt),Time:s.reportTime||'',Vehicle:s.vehicleNo,Driver:(empByEmail(s.driverEmail)||{}).name||s.driverEmail,Mileage:num(s.mileage),Source:s.source||'web'}));
+    return {cols:['Date','Time','Vehicle','Driver','Mileage','Source'],rows,name:'Mileage History'};
+  }
+  if(id==='utilization'){
+    const rows=[];
+    vs.forEach(v=>{
+      const subs=S.submissions.filter(s=>s.vehicleNo===v.vehicleNo).slice().sort((a,b)=>(toDate(a.createdAt)||0)-(toDate(b.createdAt)||0));
+      for(let k=1;k<subs.length;k++){
+        const miles=num(subs[k].mileage)-num(subs[k-1].mileage);
+        const days=Math.max(1,Math.round(((toDate(subs[k].createdAt)||0)-(toDate(subs[k-1].createdAt)||0))/86400000));
+        rows.push({Vehicle:v.vehicleNo,From:fmtDate(subs[k-1].createdAt),To:fmtDate(subs[k].createdAt),Miles:miles,Days:days,'Mi/Day':days?Math.round(miles/days):miles});
+      }
+    });
+    return {cols:['Vehicle','From','To','Miles','Days','Mi/Day'],rows,name:'Vehicle Utilization'};
+  }
+  if(id==='oilhist'){
+    const rows=vs.filter(v=>v.lastOilChangeMileage!=null).map(v=>({Vehicle:v.vehicleNo,'Last Oil Change Mileage':num(v.lastOilChangeMileage),'Last Oil Change Date':fmtDate(v.lastOilChangeDate),Interval:num(v.oilChangeInterval)}));
+    return {cols:['Vehicle','Last Oil Change Mileage','Last Oil Change Date','Interval'],rows,name:'Oil Change History'};
+  }
+  if(id==='oilstatus'){
+    const rows=vs.map(v=>{const o=oilStatus(v);const d=driverOfVehicle(v);return {Vehicle:v.vehicleNo,Driver:d?d.name:'',Current:num(v.currentMileage),'Next Due':o.next,'Miles Left':o.remaining,Status:o.state==='overdue'?'Overdue':o.state==='soon'?'Due Soon':'OK'};});
+    return {cols:['Vehicle','Driver','Current','Next Due','Miles Left','Status'],rows,name:'Oil Maintenance Status'};
+  }
+  if(id==='inspcompliance'){
+    const rows=vs.map(v=>{const i=inspectionStatus(v.vehicleNo);const d=driverOfVehicle(v);return {Vehicle:v.vehicleNo,Driver:d?d.name:'',Month:monthKey(),Status:i.state==='done'?'Completed':i.state==='overdue'?'Overdue':'Due',Result:i.insp?i.insp.result:'',Completed:i.insp?fmtDate(i.insp.completedAt):''};});
+    return {cols:['Vehicle','Driver','Month','Status','Result','Completed'],rows,name:'Inspection Compliance'};
+  }
+  if(id==='overduemaint'){
+    const rows=vs.map(v=>({v,o:oilStatus(v)})).filter(x=>x.o.state==='overdue').map(x=>{const d=driverOfVehicle(x.v);return {Vehicle:x.v.vehicleNo,Driver:d?d.name:'',Current:num(x.v.currentMileage),'Next Due':x.o.next,'Miles Overdue':Math.abs(x.o.remaining)};});
+    return {cols:['Vehicle','Driver','Current','Next Due','Miles Overdue'],rows,name:'Overdue Maintenance'};
+  }
+  if(id==='missed'){
+    const rows=S.weekStatus.filter(w=>!w.submitted && vehNos.has(w.vehicleNo)).map(w=>({Week:w.weekKey,Driver:(empByEmail(w.driverEmail)||{}).name||w.driverEmail,Vehicle:w.vehicleNo,Status:'Missing'}));
+    return {cols:['Week','Driver','Vehicle','Status'],rows,name:'Missed Mileage Submissions'};
+  }
+  return {cols:[],rows:[],name:''};
+}
+function renderReport(){
+  const id=document.getElementById('report-select').value;
+  currentReport=buildReportData(id);
+  const tbl=document.getElementById('report-tbl');
+  if(!currentReport.rows.length){ tbl.innerHTML='<tbody><tr><td class="empty">No data for this report.</td></tr></tbody>'; return; }
+  tbl.innerHTML='<thead><tr>'+currentReport.cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+
+    currentReport.rows.map(r=>'<tr>'+currentReport.cols.map(c=>'<td>'+(typeof r[c]==='number'?r[c].toLocaleString():(r[c]==null?'':r[c]))+'</td>').join('')+'</tr>').join('')+'</tbody>';
+}
+function exportReport(fmt){
+  if(!currentReport.rows.length){ toast('Nothing to export.','err'); return; }
+  const fname=currentReport.name.replace(/\s+/g,'_')+'_'+iso(new Date());
+  if(fmt==='xlsx'){
+    const ws=XLSX.utils.json_to_sheet(currentReport.rows,{header:currentReport.cols});
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Report'); XLSX.writeFile(wb,fname+'.xlsx');
+  } else {
+    const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:currentReport.cols.length>5?'landscape':'portrait'});
+    doc.setFontSize(13); doc.text('AFS Fleet — '+currentReport.name,14,15);
+    doc.setFontSize(9); doc.text('Generated '+new Date().toLocaleString(),14,21);
+    doc.autoTable({startY:26,head:[currentReport.cols],body:currentReport.rows.map(r=>currentReport.cols.map(c=>r[c]==null?'':r[c])),
+      styles:{fontSize:8},headStyles:{fillColor:[88,166,255]}});
+    doc.save(fname+'.pdf');
+  }
+  toast('Exported '+fname+'.'+fmt,'ok');
+}
+
+/* ---------- ADMIN ---------- */
+function renderAdmin(){
+  if(S.user.role!=='admin') return;
+  // employees
+  const et=document.getElementById('emp-tbl');
+  et.innerHTML='<thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Mgr</th><th></th></tr></thead><tbody>'+
+    (S.employees.length?S.employees.map(e=>'<tr><td>'+(e.name||'')+'</td><td class="hint">'+e.email+'</td><td><span class="badge b-muted">'+(e.role||'driver')+'</span></td><td class="hint">'+(e.managerId||'—')+'</td>'+
+      '<td><button class="btn sm" onclick="openEmployee(\''+e.email+'\')">Edit</button></td></tr>').join(''):'<tr><td colspan="5" class="empty">No employees. Import a roster.</td></tr>')+'</tbody>';
+  // vehicles
+  const vt=document.getElementById('admveh-tbl');
+  vt.innerHTML='<thead><tr><th>Vehicle</th><th>Make / Model</th><th>Driver</th><th>Interval</th><th></th></tr></thead><tbody>'+
+    (S.vehicles.length?S.vehicles.map(v=>'<tr><td><b>'+v.vehicleNo+'</b></td><td>'+vehMakeModel(v)+'</td><td class="hint">'+(v.assignedDriverEmail||'—')+'</td><td>'+num(v.oilChangeInterval).toLocaleString()+'</td>'+
+      '<td><button class="btn sm" onclick="openVehicle(\''+v.vehicleNo+'\')">Edit</button></td></tr>').join(''):'<tr><td colspan="4" class="empty">No vehicles. Import a roster.</td></tr>')+'</tbody>';
+  // notifications
+  const nt=document.getElementById('notif-tbl');
+  const notes=S.notifications.slice().sort((a,b)=>(toDate(b.createdAt)||0)-(toDate(a.createdAt)||0)).slice(0,50);
+  nt.innerHTML='<thead><tr><th>When</th><th>To</th><th>Category</th><th>Subject</th><th>Status</th></tr></thead><tbody>'+
+    (notes.length?notes.map(n=>'<tr><td class="hint">'+fmtDateTime(n.createdAt)+'</td><td class="hint">'+n.toEmail+'</td><td><span class="badge b-muted">'+n.category+'</span></td><td>'+(n.subject||'')+'</td><td>'+(n.status==='failed'?'<span class="badge b-over">failed</span>':'<span class="badge b-done">sent</span>')+'</td></tr>').join(''):'<tr><td colspan="5" class="empty">No notifications logged yet. These appear once the email functions are deployed.</td></tr>')+'</tbody>';
+}
+function openEmployee(email){
+  const e=email?S.employees.find(x=>x.email===email):{};
+  const mgrs=S.employees.filter(x=>x.role==='manager'||x.role==='admin');
+  document.getElementById('modal-title').textContent=email?'Edit Employee':'Add Employee';
+  document.getElementById('modal-body').innerHTML=
+    '<div class="form-row"><div class="field"><label>Name</label><input id="e-name" value="'+esc(e.name)+'"></div>'+
+    '<div class="field"><label>Employee ID</label><input id="e-empid" value="'+esc(e.empId)+'"></div></div>'+
+    '<div class="field"><label>Email (login)</label><input id="e-email" type="email" value="'+esc(e.email)+'"'+(email?' disabled':'')+'></div>'+
+    '<div class="form-row"><div class="field"><label>Phone</label><input id="e-phone" value="'+esc(e.phone)+'"></div>'+
+    '<div class="field"><label>Role</label><select id="e-role">'+['driver','manager','admin'].map(r=>'<option'+(e.role===r?' selected':'')+'>'+r+'</option>').join('')+'</select></div></div>'+
+    '<div class="field"><label>Manager (empId)</label><select id="e-mgr"><option value="">— none —</option>'+mgrs.map(m=>'<option value="'+m.empId+'"'+(e.managerId===m.empId?' selected':'')+'>'+m.name+' ('+m.empId+')</option>').join('')+'</select></div>';
+  document.getElementById('modal-foot').innerHTML=(email?'<button class="btn danger" onclick="deleteEmployee(\''+email+'\')">Delete</button>':'')+'<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveEmployee(\''+(email||'')+'\')">Save</button>';
+  openModal();
+}
+async function saveEmployee(orig){
+  const email=(orig||document.getElementById('e-email').value).trim().toLowerCase();
+  if(!email){ toast('Email required.','err'); return; }
+  const data={email,empId:val('e-empid'),name:val('e-name'),phone:val('e-phone'),role:val('e-role'),managerId:val('e-mgr')||null,active:true,updatedAt:nowTs()};
+  if(!orig) data.createdAt=nowTs();
+  try{ await dbSet('employees',email,data); closeModal(); toast('Employee saved ✓','ok'); }catch(e){ toast('Save failed: '+e.message,'err'); }
+}
+async function deleteEmployee(email){ if(!confirm('Delete '+email+'?')) return; await dbDelete('employees',email); closeModal(); toast('Deleted','ok'); }
+
+function openVehicle(vehicleNo){
+  const v=vehicleNo?S.vehicles.find(x=>x.vehicleNo===vehicleNo):{};
+  const drivers=S.employees;
+  document.getElementById('modal-title').textContent=vehicleNo?'Edit Vehicle':'Add Vehicle';
+  document.getElementById('modal-body').innerHTML=
+    '<div class="form-row"><div class="field"><label>Vehicle No</label><input id="v-no" value="'+esc(v.vehicleNo)+'"'+(vehicleNo?' disabled':'')+'></div>'+
+    '<div class="field"><label>Series / Trim</label><input id="v-desc" value="'+esc(v.description)+'"></div></div>'+
+    '<div class="form-row"><div class="field"><label>Year</label><input id="v-year" value="'+esc(v.year)+'"></div>'+
+    '<div class="field"><label>Make</label><input id="v-make" value="'+esc(v.make)+'"></div></div>'+
+    '<div class="form-row"><div class="field"><label>Model</label><input id="v-model" value="'+esc(v.model)+'"></div>'+
+    '<div class="field"><label>VIN</label><input id="v-vin" value="'+esc(v.vin)+'"></div></div>'+
+    '<div class="field"><label>Assigned Driver</label><select id="v-driver"><option value="">— unassigned —</option>'+drivers.map(d=>'<option value="'+d.email+'"'+(v.assignedDriverEmail===d.email?' selected':'')+'>'+d.name+' ('+d.email+')</option>').join('')+'</select></div>'+
+    '<div class="form-row"><div class="field"><label>Current Mileage</label><input id="v-cur" type="number" value="'+esc(v.currentMileage)+'"></div>'+
+    '<div class="field"><label>Last Oil Change Mileage</label><input id="v-lastoil" type="number" value="'+esc(v.lastOilChangeMileage)+'"></div></div>'+
+    '<div class="form-row"><div class="field"><label>Oil Change Interval</label><input id="v-interval" type="number" value="'+esc(v.oilChangeInterval||5000)+'"></div>'+
+    '<div class="field"><label>Due Soon Threshold (mi)</label><input id="v-soon" type="number" value="'+esc(v.oilDueSoonMiles||500)+'"></div></div>';
+  document.getElementById('modal-foot').innerHTML=(vehicleNo?'<button class="btn danger" onclick="deleteVehicle(\''+vehicleNo+'\')">Delete</button>':'')+'<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveVehicle(\''+(vehicleNo||'')+'\')">Save</button>';
+  openModal();
+}
+async function saveVehicle(orig){
+  const vehicleNo=(orig||val('v-no')).trim();
+  if(!vehicleNo){ toast('Vehicle No required.','err'); return; }
+  const data={vehicleNo,description:val('v-desc'),year:val('v-year'),make:val('v-make'),model:val('v-model'),vin:val('v-vin'),assignedDriverEmail:val('v-driver')||null,currentMileage:num(val('v-cur')),
+    lastOilChangeMileage:num(val('v-lastoil')),oilChangeInterval:num(val('v-interval'))||5000,oilDueSoonMiles:num(val('v-soon'))||500,active:true,updatedAt:nowTs()};
+  if(!orig){ data.createdAt=nowTs(); data.currentMileageAt=nowTs(); }
+  try{ await dbSet('vehicles',vehicleNo,data); closeModal(); toast('Vehicle saved ✓','ok'); }catch(e){ toast('Save failed: '+e.message,'err'); }
+}
+async function deleteVehicle(vehicleNo){ if(!confirm('Delete '+vehicleNo+'?')) return; await dbDelete('vehicles',vehicleNo); closeModal(); toast('Deleted','ok'); }
+
+/* ---------- ROSTER IMPORT ---------- */
+function downloadTemplate(){
+  const cols=['vehicleNo','year','make','model','vin','description','driverName','driverEmail','driverPhone','role','managerEmail','currentMileage','lastOilChangeMileage','oilChangeInterval'];
+  const sample=[{vehicleNo:'V-101',year:2022,make:'Ford',model:'Transit',vin:'1FTBW3XG6KKA70041',description:'Base Cargo Van',driverName:'Jane Driver',driverEmail:'jane@afsgroup.com',driverPhone:'+15025550101',role:'driver',managerEmail:'mike@afsgroup.com',currentMileage:48000,lastOilChangeMileage:45000,oilChangeInterval:5000}];
+  const ws=XLSX.utils.json_to_sheet(sample,{header:cols}); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Roster'); XLSX.writeFile(wb,'fleet_roster_template.xlsx');
+}
+function importRoster(ev){
+  const file=ev.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    let rows=[];
+    try{
+      if(/\.csv$/i.test(file.name)){ rows=Papa.parse(e.target.result,{header:true,skipEmptyLines:true}).data; }
+      else { const wb=XLSX.read(e.target.result,{type:'binary'}); rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]); }
+    }catch(err){ toast('Could not parse file: '+err.message,'err'); return; }
+    await processRoster(rows);
+  };
+  if(/\.csv$/i.test(file.name)) reader.readAsText(file); else reader.readAsBinaryString(file);
+  ev.target.value='';
+}
+async function processRoster(rows){
+  let emps=0,vehs=0;
+  // pass 1: employees (drivers + managers derived from managerEmail)
+  const seenEmp=new Set();
+  const ensureEmp=async(email,name,phone,role)=>{
+    email=(email||'').trim().toLowerCase(); if(!email||seenEmp.has(email)) return; seenEmp.add(email);
+    const existing=S.employees.find(x=>x.email===email);
+    const empId=(existing&&existing.empId)|| ('E'+email.split('@')[0].replace(/[^a-z0-9]/gi,'').slice(0,10));
+    await dbSet('employees',email,{email,empId,name:name||(existing&&existing.name)||email,phone:phone||'',role:role||(existing&&existing.role)||'driver',managerId:(existing&&existing.managerId)||null,active:true,updatedAt:nowTs(),createdAt:existing?existing.createdAt:nowTs()});
+    emps++;
+  };
+  for(const r of rows){ if(r.managerEmail) await ensureEmp(r.managerEmail,r.managerName,'', 'manager'); }
+  for(const r of rows){ if(r.driverEmail) await ensureEmp(r.driverEmail,r.driverName,r.driverPhone,r.role||'driver'); }
+  // set managerId links
+  for(const r of rows){
+    const de=(r.driverEmail||'').trim().toLowerCase(), me=(r.managerEmail||'').trim().toLowerCase();
+    if(de&&me){ const mgr=S.employees.find(x=>x.email===me); if(mgr) await dbSet('employees',de,{managerId:mgr.empId}); }
+  }
+  // pass 2: vehicles
+  for(const r of rows){
+    if(!r.vehicleNo) continue;
+    const vn=String(r.vehicleNo).trim();
+    const existing=S.vehicles.find(x=>x.vehicleNo===vn);
+    await dbSet('vehicles',vn,{vehicleNo:vn,description:r.description||r.series||'',year:r.year!=null?String(r.year):'',make:r.make||'',model:r.model||'',vin:r.vin||'',
+      assignedDriverEmail:(r.driverEmail||'').trim().toLowerCase()||null,
+      currentMileage:num(r.currentMileage),currentMileageAt:nowTs(),lastOilChangeMileage:num(r.lastOilChangeMileage),
+      oilChangeInterval:num(r.oilChangeInterval)||5000,oilDueSoonMiles:(existing&&existing.oilDueSoonMiles)||500,active:true,updatedAt:nowTs(),createdAt:existing?existing.createdAt:nowTs()});
+    vehs++;
+  }
+  toast('Imported '+vehs+' vehicles, '+emps+' employees ✓','ok');
+  renderAll();
+}
+
+/* ============================================================
+   UTIL
+   ============================================================ */
+function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
+function esc(v){ return v==null?'':String(v).replace(/"/g,'&quot;'); }
+function openModal(){ document.getElementById('modal-bg').classList.add('open'); }
+function closeModal(){ document.getElementById('modal-bg').classList.remove('open'); }
+document.getElementById('modal-bg').addEventListener('click',e=>{ if(e.target.id==='modal-bg') closeModal(); });
+let toastTimer=null;
+function toast(msg,kind){ const t=document.getElementById('toast'); t.textContent=msg; t.className=kind||''; t.style.display='block'; clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.display='none',3200); }
+
+/* ============================================================
+   SAMPLE DATA (dev bypass only)
+   ============================================================ */
+function loadSampleData(){
+  const today=new Date();
+  const thisWk=weekKey();
+  S.employees=[
+    {id:'admin@afsgroup.com',email:'admin@afsgroup.com',empId:'E0001',name:'Alex Admin',phone:'+15025550001',role:'admin',managerId:null,active:true},
+    {id:'mike@afsgroup.com',email:'mike@afsgroup.com',empId:'E0010',name:'Mike Manager',phone:'+15025550010',role:'manager',managerId:null,active:true},
+    {id:'jane@afsgroup.com',email:'jane@afsgroup.com',empId:'E0101',name:'Jane Driver',phone:'+15025550101',role:'driver',managerId:'E0010',active:true},
+    {id:'carlos@afsgroup.com',email:'carlos@afsgroup.com',empId:'E0102',name:'Carlos Rivera',phone:'+15025550102',role:'driver',managerId:'E0010',active:true},
+    {id:'dana@afsgroup.com',email:'dana@afsgroup.com',empId:'E0103',name:'Dana Lee',phone:'+15025550103',role:'driver',managerId:'E0010',active:true},
+  ];
+  S.vehicles=[
+    {id:'V-101',vehicleNo:'V-101',year:'2022',make:'Ford',model:'Transit-350',vin:'1FTBW3XG6KKA70041',description:'Ext. Cargo Van',assignedDriverEmail:'jane@afsgroup.com',currentMileage:49800,currentMileageAt:new Date(today-2*864e5).toISOString(),lastOilChangeMileage:45000,oilChangeInterval:5000,oilDueSoonMiles:500,active:true},
+    {id:'V-102',vehicleNo:'V-102',year:'2024',make:'RAM',model:'1500 Classic',vin:'1C6RR7FGXRS162589',description:'Tradesman 4x4',assignedDriverEmail:'carlos@afsgroup.com',currentMileage:73200,currentMileageAt:new Date(today-9*864e5).toISOString(),lastOilChangeMileage:68000,oilChangeInterval:5000,oilDueSoonMiles:500,active:true},
+    {id:'V-103',vehicleNo:'V-103',year:'2023',make:'Toyota',model:'RAV4',vin:'2T3F1RFV1PC329652',description:'LE AWD',assignedDriverEmail:'dana@afsgroup.com',currentMileage:21050,currentMileageAt:new Date(today-1*864e5).toISOString(),lastOilChangeMileage:20000,oilChangeInterval:5000,oilDueSoonMiles:500,active:true},
+  ];
+  S.submissions=[
+    {id:'s1',driverEmail:'jane@afsgroup.com',vehicleNo:'V-101',mileage:49800,reportDate:iso(new Date(today-2*864e5)),reportTime:'08:15',weekKey:thisWk,source:'web',createdAt:new Date(today-2*864e5).toISOString()},
+    {id:'s0',driverEmail:'jane@afsgroup.com',vehicleNo:'V-101',mileage:49100,reportDate:iso(new Date(today-9*864e5)),reportTime:'08:02',weekKey:weekKey(new Date(today-9*864e5)),source:'web',createdAt:new Date(today-9*864e5).toISOString()},
+    {id:'s2',driverEmail:'dana@afsgroup.com',vehicleNo:'V-103',mileage:21050,reportDate:iso(new Date(today-1*864e5)),reportTime:'07:45',weekKey:thisWk,source:'web',createdAt:new Date(today-1*864e5).toISOString()},
+  ];
+  S.weekStatus=[
+    {id:thisWk+'_jane@afsgroup.com',weekKey:thisWk,driverEmail:'jane@afsgroup.com',vehicleNo:'V-101',submitted:true,submittedAt:new Date(today-2*864e5).toISOString()},
+    {id:thisWk+'_dana@afsgroup.com',weekKey:thisWk,driverEmail:'dana@afsgroup.com',vehicleNo:'V-103',submitted:true,submittedAt:new Date(today-1*864e5).toISOString()},
+    {id:thisWk+'_carlos@afsgroup.com',weekKey:thisWk,driverEmail:'carlos@afsgroup.com',vehicleNo:'V-102',submitted:false,submittedAt:null},
+  ];
+  S.inspections=[
+    {id:'V-101_'+monthKey(),vehicleNo:'V-101',monthKey:monthKey(),driverEmail:'jane@afsgroup.com',managerEmail:'mike@afsgroup.com',items:{tires:'pass',lights:'pass',windshield:'pass',mirrors:'pass',brakes:'pass',fluids:'pass',bodyDamage:'pass',interior:'pass',cleanliness:'pass',safetyEquipment:'pass'},result:'pass',notes:'All good.',completedAt:new Date(today-3*864e5).toISOString()},
+  ];
+  S.notifications=[
+    {id:'n1',toEmail:'carlos@afsgroup.com',category:'weekly_reminder',refKey:thisWk,subject:'Please submit your weekly mileage',status:'sent',createdAt:new Date(today-0.2*864e5).toISOString()},
+  ];
+}
+</script>
+</body>
+</html>
