@@ -721,7 +721,7 @@ function renderMyReport(){
   let vehs=visibleVehicles();
   if(S.user.role!=='driver'){ vehs=S.vehicles; }
   const myVeh=vehicleOfDriver(S.user.email);
-  if(!vehs.length){ wrap.innerHTML='<div class="empty">No vehicle assigned to you. Contact an administrator.</div>'; }
+  if(!vehs.length){ wrap.innerHTML='<div class="empty" style="text-align:left;line-height:1.7">No vehicle is assigned to <b style="color:var(--text)">'+S.user.email+'</b> yet.<br>An administrator can fix this under <b>Admin → Vehicles</b>: edit the vehicle and set its <b>Assigned Driver</b> to this exact email (the driver\'s login email and the vehicle\'s assigned email must match).</div>'; }
   else {
     wrap.innerHTML=
       '<div class="field"><label>Vehicle</label><select id="mr-vehicle">'+
