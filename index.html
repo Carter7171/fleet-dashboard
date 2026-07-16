@@ -980,7 +980,7 @@ function openEmployee(email){
   document.getElementById('modal-body').innerHTML=
     '<div class="form-row"><div class="field"><label>Name</label><input id="e-name" value="'+esc(e.name)+'"></div>'+
     '<div class="field"><label>Employee ID</label><input id="e-empid" value="'+esc(e.empId)+'"></div></div>'+
-    '<div class="field"><label>Email (login)</label><input id="e-email" type="email" value="'+esc(e.email)+'"'+(email?' disabled':'')+'></div>'+
+    '<div class="field"><label>Email (login)</label><input id="e-email" type="email" value="'+esc(e.email)+'">'+(email?'<div class="hint">Changing this moves their login email and reassigns their vehicle(s) to the new address.</div>':'')+'</div>'+
     '<div class="form-row"><div class="field"><label>Phone</label><input id="e-phone" value="'+esc(e.phone)+'"></div>'+
     '<div class="field"><label>Role</label><select id="e-role">'+['driver','manager','admin'].map(r=>'<option'+(e.role===r?' selected':'')+'>'+r+'</option>').join('')+'</select></div></div>'+
     '<div class="field"><label>Manager (empId)</label><select id="e-mgr"><option value="">— none —</option>'+mgrs.map(m=>'<option value="'+m.empId+'"'+(e.managerId===m.empId?' selected':'')+'>'+m.name+' ('+m.empId+')</option>').join('')+'</select></div>';
@@ -988,11 +988,23 @@ function openEmployee(email){
   openModal();
 }
 async function saveEmployee(orig){
-  const email=(orig||document.getElementById('e-email').value).trim().toLowerCase();
+  const email=document.getElementById('e-email').value.trim().toLowerCase();
   if(!email){ toast('Email required.','err'); return; }
-  const data={email,empId:val('e-empid'),name:val('e-name'),phone:val('e-phone'),role:val('e-role'),managerId:val('e-mgr')||null,active:true,updatedAt:nowTs()};
-  if(!orig) data.createdAt=nowTs();
-  try{ await dbSet('employees',email,data); closeModal(); toast('Employee saved ✓','ok'); }catch(e){ toast('Save failed: '+e.message,'err'); }
+  const existing=orig?S.employees.find(x=>x.email===orig):null;
+  const data={email,empId:val('e-empid'),name:val('e-name'),phone:val('e-phone'),role:normRole(val('e-role')),managerId:val('e-mgr')||null,active:true,updatedAt:nowTs(),
+    createdAt:(existing&&existing.createdAt)||nowTs()};
+  try{
+    const renaming = orig && email!==orig;
+    if(renaming && S.employees.some(x=>x.email===email)){ toast('An employee with '+email+' already exists.','err'); return; }
+    await dbSet('employees',email,data);
+    if(renaming){
+      // move the login: reassign vehicles pointing at the old email, then remove the old doc
+      for(const v of S.vehicles.filter(x=>x.assignedDriverEmail===orig)){ await dbSet('vehicles',v.vehicleNo,{assignedDriverEmail:email}); }
+      await dbDelete('employees',orig);
+      toast('Email updated to '+email+' — vehicles reassigned ✓','ok');
+    } else { toast('Employee saved ✓','ok'); }
+    closeModal();
+  }catch(e){ toast('Save failed: '+((e&&e.message)||e),'err'); }
 }
 async function deleteEmployee(email){ if(!confirm('Delete '+email+'?')) return; await dbDelete('employees',email); closeModal(); toast('Deleted','ok'); }
 
