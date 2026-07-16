@@ -512,14 +512,31 @@ function showAccessDenied(email){
    LIVE LISTENERS (live mode only)
    ============================================================ */
 function attachListeners(){
-  const map=[['employees',COLL.employees],['vehicles',COLL.vehicles],['submissions',COLL.submissions],
-    ['inspections',COLL.inspections],['weekStatus',COLL.weekStatus],['notifications',COLL.notifications]];
-  map.forEach(([key,coll])=>{
-    _db.collection(coll).onSnapshot(snap=>{
-      S[key]=snap.docs.map(d=>({id:d.id,...d.data()}));
-      renderAll();
-    },err=>console.warn('listener '+coll,err));
-  });
+  const role=S.user.role, email=S.user.email;
+  const listen=(key,coll,q)=>{
+    let ref=_db.collection(coll); if(q) ref=q(ref);
+    ref.onSnapshot(
+      snap=>{ S[key]=snap.docs.map(d=>({id:d.id,...d.data()})); renderAll(); },
+      err=>{ console.warn('listener '+coll+':',(err&&err.code)||err); if((err&&err.code)==='permission-denied'){ toast('Access blocked reading '+coll+' — publish the latest firestore.rules.','err'); } }
+    );
+  };
+  if(role==='driver'){
+    // drivers may only read their OWN rows — queries must be scoped to match the security rules
+    listen('employees',COLL.employees, r=>r.where('email','==',email));
+    listen('vehicles',COLL.vehicles, r=>r.where('assignedDriverEmail','==',email));
+    listen('submissions',COLL.submissions, r=>r.where('driverEmail','==',email));
+    listen('inspections',COLL.inspections, r=>r.where('driverEmail','==',email));
+    listen('weekStatus',COLL.weekStatus, r=>r.where('driverEmail','==',email));
+    listen('notifications',COLL.notifications, r=>r.where('toEmail','==',email));
+  } else { // manager or admin — fleet-wide reads
+    listen('employees',COLL.employees);
+    listen('vehicles',COLL.vehicles);
+    listen('submissions',COLL.submissions);
+    listen('inspections',COLL.inspections);
+    listen('weekStatus',COLL.weekStatus);
+    if(role==='admin') listen('notifications',COLL.notifications);
+    else listen('notifications',COLL.notifications, r=>r.where('toEmail','==',email));
+  }
 }
 
 /* ============================================================

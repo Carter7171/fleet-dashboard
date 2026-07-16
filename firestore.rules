@@ -24,18 +24,19 @@ service cloud.firestore {
     // Anyone signed in can read their own doc (needed to resolve role at login).
     // Managers read their team; admins read/write all. A user may create ONLY their own
     // doc as a default 'driver' (self-provision); role elevation is admin-only.
+    // Managers/admins read fleet-wide (so whole-collection listeners are permitted);
+    // drivers read only their own doc. Row-level team scoping for managers is applied
+    // client-side (get()-based rules can't back collection queries/listeners).
     match /fleet_employees/{docEmail} {
-      allow read: if isAdmin()
-                  || (signedIn() && docEmail == email())
-                  || (isManager() && resource.data.managerId == myEmpId());
+      allow read: if isManager()
+                  || (signedIn() && docEmail == email());
       allow write: if isAdmin();
     }
 
     // ---- fleet_vehicles ----
     match /fleet_vehicles/{vehicleNo} {
-      allow read: if isAdmin()
-                  || (provisioned() && resource.data.assignedDriverEmail == email())
-                  || (isManager() && resource.data.assignedDriverEmail != null && onMyTeam(resource.data.assignedDriverEmail));
+      allow read: if isManager()
+                  || (provisioned() && resource.data.assignedDriverEmail == email());
       // config edits are admin-only; the mileage-submit path updates only currentMileage*
       allow update: if isAdmin()
                   || (provisioned()
@@ -47,9 +48,8 @@ service cloud.firestore {
 
     // ---- fleet_mileage_submissions (immutable history) ----
     match /fleet_mileage_submissions/{id} {
-      allow read: if isAdmin()
-                  || (provisioned() && resource.data.driverEmail == email())
-                  || (isManager() && onMyTeam(resource.data.driverEmail));
+      allow read: if isManager()
+                  || (provisioned() && resource.data.driverEmail == email());
       allow create: if provisioned()
                   && request.resource.data.driverEmail == email()  // drivers create their own
                   || isManager() && onMyTeam(request.resource.data.driverEmail); // mgr/admin on behalf
@@ -58,9 +58,8 @@ service cloud.firestore {
 
     // ---- fleet_inspections ----
     match /fleet_inspections/{id} {
-      allow read: if isAdmin()
-                  || (provisioned() && resource.data.driverEmail == email())
-                  || (isManager() && onMyTeam(resource.data.driverEmail));
+      allow read: if isManager()
+                  || (provisioned() && resource.data.driverEmail == email());
       allow create, update: if isManager()
                   && (request.resource.data.driverEmail == null || onMyTeam(request.resource.data.driverEmail));
       allow delete: if isAdmin();
@@ -68,9 +67,8 @@ service cloud.firestore {
 
     // ---- fleet_week_status : written only by Cloud Functions (admin SDK) + the owning driver's submit ----
     match /fleet_week_status/{id} {
-      allow read: if isAdmin()
-                  || (provisioned() && resource.data.driverEmail == email())
-                  || (isManager() && onMyTeam(resource.data.driverEmail));
+      allow read: if isManager()
+                  || (provisioned() && resource.data.driverEmail == email());
       // client may only flip a week to submitted=true (own week, or a manager/admin on behalf of team);
       // all escalation fields (reminderSentAt, escalationCount, adminNotifiedAt) are function-only.
       allow write: if request.resource.data.submitted == true
