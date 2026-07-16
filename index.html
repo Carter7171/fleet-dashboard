@@ -732,7 +732,7 @@ function renderMyReport(){
   else {
     wrap.innerHTML=
       '<div class="field"><label>Vehicle</label><select id="mr-vehicle">'+
-        vehs.map(v=>'<option value="'+v.vehicleNo+'"'+((myVeh&&myVeh.vehicleNo===v.vehicleNo)?' selected':'')+'>'+v.vehicleNo+(v.description?' — '+v.description:'')+'</option>').join('')+
+        vehs.map(v=>{const dn=(driverOfVehicle(v)||{}).name||v.assignedDriverEmail||'unassigned';return '<option value="'+v.vehicleNo+'"'+((myVeh&&myVeh.vehicleNo===v.vehicleNo)?' selected':'')+'>'+v.vehicleNo+' ('+dn+')'+(v.description?' — '+v.description:'')+'</option>';}).join('')+
       '</select></div>'+
       '<div class="field"><label>Current Odometer Mileage</label><input id="mr-mileage" type="number" inputmode="numeric" placeholder="e.g. 84210"></div>'+
       '<div class="field"><label>Next Oil Change Due At (odometer) <span style="text-transform:none;color:var(--muted)">— optional, from your windshield sticker</span></label><input id="mr-nextoil" type="number" inputmode="numeric" placeholder="e.g. 89000"></div>'+
