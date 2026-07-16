@@ -992,50 +992,65 @@ function downloadTemplate(){
   const ws=XLSX.utils.json_to_sheet(sample,{header:cols}); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Roster'); XLSX.writeFile(wb,'fleet_roster_template.xlsx');
 }
 function importRoster(ev){
-  const file=ev.target.files[0]; if(!file) return;
+  const file=ev.target.files[0]; if(!file){ return; }
+  if(!DEV_MODE && (!_db || !S.user || S.user.role!=='admin')){
+    toast('You must be signed in as an administrator to import.','err'); ev.target.value=''; return;
+  }
+  toast('Reading '+file.name+'…');
   const reader=new FileReader();
+  reader.onerror=()=>toast('Could not read the file.','err');
   reader.onload=async e=>{
     let rows=[];
     try{
       if(/\.csv$/i.test(file.name)){ rows=Papa.parse(e.target.result,{header:true,skipEmptyLines:true}).data; }
       else { const wb=XLSX.read(e.target.result,{type:'binary'}); rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]); }
-    }catch(err){ toast('Could not parse file: '+err.message,'err'); return; }
-    await processRoster(rows);
+    }catch(err){ console.error('parse error',err); toast('Could not read that file: '+err.message,'err'); return; }
+    rows=(rows||[]).filter(r=>r && Object.keys(r).length);
+    if(!rows.length){ toast('The file has no rows.','err'); return; }
+    if(rows[0].vehicleNo===undefined && rows[0].driverEmail===undefined){
+      toast('Columns don\'t match. Use the mapped roster (lowercase headers: vehicleNo, driverEmail, …), not the raw export.','err'); return;
+    }
+    try{ await processRoster(rows); }
+    catch(err){ console.error('import failed',err); toast('Import failed: '+(err && err.message || err),'err'); }
   };
   if(/\.csv$/i.test(file.name)) reader.readAsText(file); else reader.readAsBinaryString(file);
   ev.target.value='';
 }
 async function processRoster(rows){
-  let emps=0,vehs=0;
-  // pass 1: employees (drivers + managers derived from managerEmail)
+  let emps=0,vehs=0; const fails=[];
   const seenEmp=new Set();
   const ensureEmp=async(email,name,phone,role)=>{
     email=(email||'').trim().toLowerCase(); if(!email||seenEmp.has(email)) return; seenEmp.add(email);
     const existing=S.employees.find(x=>x.email===email);
     const empId=(existing&&existing.empId)|| ('E'+email.split('@')[0].replace(/[^a-z0-9]/gi,'').slice(0,10));
-    await dbSet('employees',email,{email,empId,name:name||(existing&&existing.name)||email,phone:phone||'',role:role||(existing&&existing.role)||'driver',managerId:(existing&&existing.managerId)||null,active:true,updatedAt:nowTs(),createdAt:existing?existing.createdAt:nowTs()});
-    emps++;
+    try{
+      await dbSet('employees',email,{email,empId,name:name||(existing&&existing.name)||email,phone:phone||'',role:role||(existing&&existing.role)||'driver',managerId:(existing&&existing.managerId)||null,active:true,updatedAt:nowTs(),createdAt:existing?existing.createdAt:nowTs()});
+      emps++;
+    }catch(e){ fails.push('employee '+email+' → '+(e.message||e)); }
   };
   for(const r of rows){ if(r.managerEmail) await ensureEmp(r.managerEmail,r.managerName,'', 'manager'); }
   for(const r of rows){ if(r.driverEmail) await ensureEmp(r.driverEmail,r.driverName,r.driverPhone,r.role||'driver'); }
   // set managerId links
   for(const r of rows){
     const de=(r.driverEmail||'').trim().toLowerCase(), me=(r.managerEmail||'').trim().toLowerCase();
-    if(de&&me){ const mgr=S.employees.find(x=>x.email===me); if(mgr) await dbSet('employees',de,{managerId:mgr.empId}); }
+    if(de&&me){ const mgr=S.employees.find(x=>x.email===me); if(mgr){ try{ await dbSet('employees',de,{managerId:mgr.empId}); }catch(e){ fails.push('link '+de+' → '+(e.message||e)); } } }
   }
   // pass 2: vehicles
   for(const r of rows){
     if(!r.vehicleNo) continue;
     const vn=String(r.vehicleNo).trim();
     const existing=S.vehicles.find(x=>x.vehicleNo===vn);
-    await dbSet('vehicles',vn,{vehicleNo:vn,description:r.description||r.series||'',year:r.year!=null?String(r.year):'',make:r.make||'',model:r.model||'',vin:r.vin||'',
-      assignedDriverEmail:(r.driverEmail||'').trim().toLowerCase()||null,
-      currentMileage:num(r.currentMileage),currentMileageAt:nowTs(),lastOilChangeMileage:num(r.lastOilChangeMileage),
-      oilChangeInterval:num(r.oilChangeInterval)||5000,oilDueSoonMiles:(existing&&existing.oilDueSoonMiles)||500,active:true,updatedAt:nowTs(),createdAt:existing?existing.createdAt:nowTs()});
-    vehs++;
+    try{
+      await dbSet('vehicles',vn,{vehicleNo:vn,description:r.description||r.series||'',year:r.year!=null?String(r.year):'',make:r.make||'',model:r.model||'',vin:r.vin||'',
+        assignedDriverEmail:(r.driverEmail||'').trim().toLowerCase()||null,
+        currentMileage:num(r.currentMileage),currentMileageAt:nowTs(),lastOilChangeMileage:num(r.lastOilChangeMileage),
+        oilChangeInterval:num(r.oilChangeInterval)||5000,oilDueSoonMiles:(existing&&existing.oilDueSoonMiles)||500,active:true,updatedAt:nowTs(),createdAt:existing?existing.createdAt:nowTs()});
+      vehs++;
+    }catch(e){ fails.push('vehicle '+vn+' → '+(e.message||e)); }
   }
-  toast('Imported '+vehs+' vehicles, '+emps+' employees ✓','ok');
   renderAll();
+  if(fails.length){ console.error('import errors:',fails); toast('Imported '+vehs+' vehicles, '+emps+' people. '+fails.length+' failed: '+fails[0],'err'); }
+  else toast('Imported '+vehs+' vehicles, '+emps+' people ✓','ok');
 }
 
 /* ============================================================
