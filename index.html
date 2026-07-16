@@ -382,15 +382,23 @@ function nowTs(){ return DEV_MODE ? new Date().toISOString() : firebase.firestor
    ============================================================ */
 const CFG = { oilDueSoonMiles:500, inspectionOverdueDay:25 };
 
+function reportedNextOil(vehicleNo){
+  let best=0, bestT=-1;
+  S.submissions.forEach(s=>{ if(s.vehicleNo===vehicleNo && num(s.nextOilChangeReported)>0){ const t=+(toDate(s.createdAt)||0); if(t>=bestT){ bestT=t; best=num(s.nextOilChangeReported); } } });
+  return best;
+}
 function oilStatus(v){
   const interval=num(v.oilChangeInterval), last=num(v.lastOilChangeMileage), cur=num(v.currentMileage);
-  const next=last+interval;
-  const remaining=next-cur;
+  // Source of truth = vehicle's last oil change + interval. If no baseline is set yet,
+  // fall back to the most recent driver-reported "next oil change" from their submissions.
+  let next = last>0 ? last+interval : 0;
+  if(next<=0){ const rep=reportedNextOil(v.vehicleNo); if(rep>0) next=rep; }
+  const known = next>0;
+  const remaining = known ? next-cur : 0;
   const dueSoonMiles=num(v.oilDueSoonMiles)||CFG.oilDueSoonMiles;
-  let state='ok';
-  if(remaining<=0) state='overdue';
-  else if(remaining<=dueSoonMiles) state='soon';
-  return { next, remaining, state };
+  let state='unknown';
+  if(known){ state = remaining<=0 ? 'overdue' : (remaining<=dueSoonMiles ? 'soon' : 'ok'); }
+  return { next, remaining, state, known };
 }
 function inspectionStatus(vehicleNo){
   const key=vehicleNo+'_'+monthKey();
@@ -696,14 +704,14 @@ function renderVehicles(){
         '<td>'+vehMakeModel(v)+(v.description?'<div class="hint">'+v.description+'</div>':'')+'</td>'+
         '<td>'+(d?d.name:'<span class="hint">unassigned</span>')+'</td>'+
         '<td>'+num(v.currentMileage).toLocaleString()+'</td>'+
-        '<td>'+o.next.toLocaleString()+'</td>'+
-        '<td>'+(o.remaining<0?'<span style="color:var(--danger)">'+o.remaining.toLocaleString()+'</span>':o.remaining.toLocaleString())+'</td>'+
+        '<td>'+(o.known?o.next.toLocaleString():'—')+'</td>'+
+        '<td>'+(!o.known?'—':(o.remaining<0?'<span style="color:var(--danger)">'+o.remaining.toLocaleString()+'</span>':o.remaining.toLocaleString()))+'</td>'+
         '<td>'+oilBadge(o.state)+'</td>'+
         '<td>'+inspBadge(i)+'</td>'+
         '<td class="hint">'+fmtDateTime(v.currentMileageAt)+'</td></tr>';
     }).join('')+'</tbody>';
 }
-function oilBadge(s){ return s==='overdue'?'<span class="badge b-over">Overdue</span>':s==='soon'?'<span class="badge b-soon">Due Soon</span>':'<span class="badge b-ok">OK</span>'; }
+function oilBadge(s){ return s==='overdue'?'<span class="badge b-over">Overdue</span>':s==='soon'?'<span class="badge b-soon">Due Soon</span>':s==='unknown'?'<span class="badge b-muted">No data</span>':'<span class="badge b-ok">OK</span>'; }
 function inspBadge(i){ if(i.state==='done') return '<span class="badge '+(i.result==='fail'?'b-fail':'b-done')+'">'+(i.result==='fail'?'Failed':'Completed')+'</span>'; return i.state==='overdue'?'<span class="badge b-over">Overdue</span>':'<span class="badge b-due">Due</span>'; }
 
 /* ---------- MY REPORT ---------- */
@@ -743,16 +751,24 @@ async function submitMileage(){
   if(mileage < num(veh.currentMileage)){ if(!confirm('That mileage ('+mileage.toLocaleString()+') is lower than the last reading ('+num(veh.currentMileage).toLocaleString()+'). Submit anyway?')) return; }
   const driverEmail = S.user.role==='driver' ? S.user.email : (veh.assignedDriverEmail||S.user.email);
   const wk=weekKey(); const now=new Date();
+  const nextOil=num((document.getElementById('mr-nextoil')||{}).value);
+  // 1) Core submission: mileage history + current mileage + week status. The reported
+  //    next-oil is stored ON the submission (always writable by the driver), so the
+  //    dashboard reflects it even if the vehicle-config write below is blocked.
   try{
-    const subId=await dbAdd('submissions',{driverEmail,vehicleNo,mileage,reportDate:iso(now),reportTime:hm(now),weekKey:wk,source:'web',submittedByUid:S.user.email,createdAt:nowTs()});
-    const vehUpdate={currentMileage:mileage,currentMileageAt:nowTs()};
-    const nextOil=num((document.getElementById('mr-nextoil')||{}).value);
-    if(nextOil>0){ vehUpdate.lastOilChangeMileage=nextOil-(num(veh.oilChangeInterval)||5000); vehUpdate.lastOilChangeDate=nowTs(); }
-    await dbSet('vehicles',vehicleNo,vehUpdate);
+    const subId=await dbAdd('submissions',{driverEmail,vehicleNo,mileage,reportDate:iso(now),reportTime:hm(now),weekKey:wk,source:'web',submittedByUid:S.user.email,nextOilChangeReported:nextOil>0?nextOil:null,createdAt:nowTs()});
+    await dbSet('vehicles',vehicleNo,{currentMileage:mileage,currentMileageAt:nowTs()});
     await dbSet('weekStatus',wk+'_'+driverEmail,{weekKey:wk,driverEmail,vehicleNo,submitted:true,submittedAt:nowTs(),submissionId:subId});
     document.getElementById('mr-mileage').value='';
-    toast('Mileage submitted for '+vehicleNo+' ✓','ok');
-  }catch(e){ toast('Submit failed: '+e.message,'err'); }
+    const oilEl=document.getElementById('mr-nextoil'); if(oilEl) oilEl.value='';
+    toast('Submitted for '+vehicleNo+(nextOil>0?' — next oil change '+nextOil.toLocaleString():'')+' ✓','ok');
+  }catch(e){ toast('Submit failed: '+((e&&e.message)||e),'err'); return; }
+  // 2) Best-effort: sync the oil baseline onto the vehicle record (source of truth for
+  //    alerts/reports). If the rules block it, the reading is still saved on the submission.
+  if(nextOil>0){
+    try{ await dbSet('vehicles',vehicleNo,{lastOilChangeMileage:nextOil-(num(veh.oilChangeInterval)||5000),lastOilChangeDate:nowTs()}); }
+    catch(e){ console.warn('oil baseline write blocked',e); }
+  }
 }
 
 /* ---------- DRIVERS ---------- */
@@ -889,7 +905,7 @@ function buildReportData(id){
     return {cols:['Vehicle','Last Oil Change Mileage','Last Oil Change Date','Interval'],rows,name:'Oil Change History'};
   }
   if(id==='oilstatus'){
-    const rows=vs.map(v=>{const o=oilStatus(v);const d=driverOfVehicle(v);return {Vehicle:v.vehicleNo,Driver:d?d.name:'',Current:num(v.currentMileage),'Next Due':o.next,'Miles Left':o.remaining,Status:o.state==='overdue'?'Overdue':o.state==='soon'?'Due Soon':'OK'};});
+    const rows=vs.map(v=>{const o=oilStatus(v);const d=driverOfVehicle(v);return {Vehicle:v.vehicleNo,Driver:d?d.name:'',Current:num(v.currentMileage),'Next Due':o.known?o.next:'','Miles Left':o.known?o.remaining:'',Status:o.state==='overdue'?'Overdue':o.state==='soon'?'Due Soon':o.state==='unknown'?'No data':'OK'};});
     return {cols:['Vehicle','Driver','Current','Next Due','Miles Left','Status'],rows,name:'Oil Maintenance Status'};
   }
   if(id==='inspcompliance'){
