@@ -1076,36 +1076,50 @@ function importRoster(ev){
   ev.target.value='';
 }
 async function processRoster(rows){
+  // Non-destructive MERGE: a blank cell never overwrites existing data, and an
+  // existing employee's role is never downgraded by an import (roles are managed in-app).
   let emps=0,vehs=0; const fails=[];
+  const has=v=>v!==undefined&&v!==null&&String(v).trim()!=='';
+  const keep=(rv,ev)=>has(rv)?String(rv).trim():(ev!=null?ev:'');
   const seenEmp=new Set();
   const ensureEmp=async(email,name,phone,role)=>{
     email=(email||'').trim().toLowerCase(); if(!email||seenEmp.has(email)) return; seenEmp.add(email);
-    const existing=S.employees.find(x=>x.email===email);
-    const empId=(existing&&existing.empId)|| ('E'+email.split('@')[0].replace(/[^a-z0-9]/gi,'').slice(0,10));
+    const ex=S.employees.find(x=>x.email===email);
+    const empId=(ex&&ex.empId)|| ('E'+email.split('@')[0].replace(/[^a-z0-9]/gi,'').slice(0,10));
     try{
-      await dbSet('employees',email,{email,empId,name:name||(existing&&existing.name)||email,phone:phone||'',role:role||(existing&&existing.role)||'driver',managerId:(existing&&existing.managerId)||null,active:true,updatedAt:nowTs(),createdAt:existing?existing.createdAt:nowTs()});
+      await dbSet('employees',email,{email,empId,
+        name:keep(name, ex&&ex.name)||email,
+        phone:keep(phone, ex&&ex.phone),
+        role: ex ? (ex.role||'driver') : normRole(role),   // keep existing role; never downgrade via import
+        managerId:(ex&&ex.managerId)||null, active:true, updatedAt:nowTs(), createdAt:ex?ex.createdAt:nowTs()});
       emps++;
     }catch(e){ fails.push('employee '+email+' → '+(e.message||e)); }
   };
   for(const r of rows){ if(r.managerEmail) await ensureEmp(r.managerEmail,r.managerName,'', 'manager'); }
   for(const r of rows){ if(r.driverEmail) await ensureEmp(r.driverEmail,r.driverName,r.driverPhone,r.role||'driver'); }
-  // set managerId links
+  // set managerId links (only when the roster provides a manager)
   for(const r of rows){
     const de=(r.driverEmail||'').trim().toLowerCase(), me=(r.managerEmail||'').trim().toLowerCase();
     if(de&&me){ const mgr=S.employees.find(x=>x.email===me); if(mgr){ try{ await dbSet('employees',de,{managerId:mgr.empId}); }catch(e){ fails.push('link '+de+' → '+(e.message||e)); } } }
   }
-  // pass 2: vehicles
+  // pass 2: vehicles (merge)
   for(const r of rows){
     if(!r.vehicleNo) continue;
     const vn=String(r.vehicleNo).trim();
-    const existing=S.vehicles.find(x=>x.vehicleNo===vn);
-    try{
-      await dbSet('vehicles',vn,{vehicleNo:vn,description:r.description||r.series||'',year:r.year!=null?String(r.year):'',make:r.make||'',model:r.model||'',vin:r.vin||'',licensePlate:r.licensePlate||r.plate||'',
-        assignedDriverEmail:(r.driverEmail||'').trim().toLowerCase()||null,
-        currentMileage:num(r.currentMileage),currentMileageAt:nowTs(),lastOilChangeMileage:num(r.lastOilChangeMileage),
-        oilChangeInterval:num(r.oilChangeInterval)||5000,oilDueSoonMiles:(existing&&existing.oilDueSoonMiles)||500,active:true,updatedAt:nowTs(),createdAt:existing?existing.createdAt:nowTs()});
-      vehs++;
-    }catch(e){ fails.push('vehicle '+vn+' → '+(e.message||e)); }
+    const ex=S.vehicles.find(x=>x.vehicleNo===vn);
+    const vd={vehicleNo:vn, active:true, updatedAt:nowTs(), createdAt:ex?ex.createdAt:nowTs(),
+      description:keep(r.description||r.series, ex&&ex.description),
+      year:keep(r.year, ex&&ex.year), make:keep(r.make, ex&&ex.make), model:keep(r.model, ex&&ex.model),
+      vin:keep(r.vin, ex&&ex.vin), licensePlate:keep(r.licensePlate||r.plate, ex&&ex.licensePlate),
+      oilChangeInterval: has(r.oilChangeInterval)?num(r.oilChangeInterval):((ex&&ex.oilChangeInterval)||5000),
+      oilDueSoonMiles:(ex&&ex.oilDueSoonMiles)||500};
+    vd.assignedDriverEmail = has(r.driverEmail)?String(r.driverEmail).trim().toLowerCase():(ex?ex.assignedDriverEmail:null);
+    if(has(r.currentMileage)){ vd.currentMileage=num(r.currentMileage); vd.currentMileageAt=nowTs(); }
+    else if(ex){ vd.currentMileage=ex.currentMileage; if(ex.currentMileageAt)vd.currentMileageAt=ex.currentMileageAt; }
+    else { vd.currentMileage=0; vd.currentMileageAt=nowTs(); }
+    vd.lastOilChangeMileage = has(r.lastOilChangeMileage)?num(r.lastOilChangeMileage):((ex&&ex.lastOilChangeMileage)||0);
+    try{ await dbSet('vehicles',vn,vd); vehs++; }
+    catch(e){ fails.push('vehicle '+vn+' → '+(e.message||e)); }
   }
   renderAll();
   if(fails.length){ console.error('import errors:',fails); toast('Imported '+vehs+' vehicles, '+emps+' people. '+fails.length+' failed: '+fails[0],'err'); }
