@@ -145,12 +145,12 @@ tr.clickable:hover td{background:var(--surface2)}
 .chip{padding:4px 11px;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);user-select:none}
 .chip.active{background:var(--primary);border-color:var(--primary);color:#fff}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
-.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px}
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:22px}
 .chart-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px}
 .chart-box .ct{font-size:12px;font-weight:700;margin-bottom:10px}
 .chart-box canvas{max-height:220px}
 
-@media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(3,1fr)}.grid2,.charts-grid{grid-template-columns:1fr}}
+@media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(3,1fr)}.grid2{grid-template-columns:1fr}}
 @media(max-width:760px){
   .sidebar{transform:translateX(-100%)}
   .sidebar.open{transform:translateX(0)}
@@ -205,6 +205,7 @@ tr.clickable:hover td{background:var(--surface2)}
       <div class="kpi-grid" id="kpi-grid"></div>
       <div class="charts-grid">
         <div class="chart-box"><div class="ct">Oil Change Status</div><canvas id="chart-oil"></canvas></div>
+        <div class="chart-box"><div class="ct">Transmission Flush Status</div><canvas id="chart-trans"></canvas></div>
         <div class="chart-box"><div class="ct">This Week's Mileage Reporting</div><canvas id="chart-mileage"></canvas></div>
       </div>
       <div class="panel">
@@ -706,12 +707,14 @@ function renderOverview(){
   else tbl.innerHTML='<thead><tr><th>Vehicle</th><th>Driver</th><th>Issue</th><th>Status</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td><b>'+r[0]+'</b></td><td>'+r[1]+'</td><td>'+r[2]+'</td><td><span class="badge '+r[3]+'">'+r[4]+'</span></td></tr>').join('')+'</tbody>';
 
-  drawOverviewCharts(oil,drivers);
+  drawOverviewCharts(oil,drivers,trans);
 }
-function drawOverviewCharts(oil,drivers){
+function drawOverviewCharts(oil,drivers,trans){
   const ok=oil.filter(o=>o.state==='ok').length, soon=oil.filter(o=>o.state==='soon').length, over=oil.filter(o=>o.state==='overdue').length;
   const sub=drivers.filter(e=>weekSubmitted(e).submitted).length, miss=drivers.length-sub;
+  const tok=trans.filter(t=>t.state==='ok').length, tsoon=trans.filter(t=>t.state==='soon').length, tover=trans.filter(t=>t.state==='overdue').length, tna=trans.filter(t=>t.state==='na').length;
   mkChart('chart-oil','doughnut',['OK','Due Soon','Overdue'],[ok,soon,over],['#3fb950','#f0883e','#f85149']);
+  mkChart('chart-trans','doughnut',['OK','Due Soon','Overdue','100k+ (n/a)'],[tok,tsoon,tover,tna],['#3fb950','#f0883e','#f85149','#444c56']);
   mkChart('chart-mileage','doughnut',['Submitted','Missing'],[sub,miss],['#3fb950','#f85149']);
 }
 function mkChart(id,type,labels,data,colors){
